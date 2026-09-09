@@ -11,9 +11,10 @@
   function nativeStore() {
     try {
       const bridge = root.AndroidBridge;
-      if (bridge && typeof bridge.loadState === 'function' && typeof bridge.saveState === 'function') {
-        return bridge;
-      }
+      // Android WebView bridge functions are Java-backed objects.  Some older
+      // WebView releases do not report their members as normal JS functions,
+      // even though calling the annotated methods works correctly.
+      if (bridge) return bridge;
     } catch (error) {
       // Continue with browser storage when the native bridge is unavailable.
     }
@@ -151,6 +152,25 @@
     }
   }
 
+  function diagnostics() {
+    const bridge = nativeStore();
+    let nativeReadable = false;
+    let nativeWritable = false;
+    try {
+      nativeReadable = Boolean(bridge && bridge.loadState);
+      nativeWritable = Boolean(bridge && bridge.saveState);
+    } catch (error) {
+      // Keep diagnostics safe on unusual WebView bridge implementations.
+    }
+    return {
+      nativeBridge: Boolean(bridge),
+      nativeReadable,
+      nativeWritable,
+      indexedDb: Boolean(root.indexedDB),
+      localStorage: Boolean(root.localStorage)
+    };
+  }
+
   async function clearState() {
     const bridge = nativeStore();
     if (bridge && typeof bridge.clearState === 'function') {
@@ -184,5 +204,5 @@
     return false;
   }
 
-  root.RenjiStore = { loadState, saveState, clearState, requestPersistence };
+  root.RenjiStore = { loadState, saveState, clearState, requestPersistence, diagnostics };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

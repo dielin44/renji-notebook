@@ -63,7 +63,19 @@ public class AppSmokeTest {
             if ("true".equals(evaluate("Boolean(" + condition + ")"))) return;
             Thread.sleep(180);
         }
-        throw new AssertionError("Condition timed out: " + condition);
+        String diagnostics = evaluate("JSON.stringify({" +
+            "ready:document.readyState," +
+            "sheetOpen:Boolean(document.getElementById('sheet')&&document.getElementById('sheet').open)," +
+            "formId:(document.querySelector('#sheet form')||{}).id||''," +
+            "formValid:document.querySelector('#sheet form')?document.querySelector('#sheet form').checkValidity():null," +
+            "formError:(document.querySelector('[data-form-error]')||{}).innerText||''," +
+            "saveLabel:(document.querySelector('[data-action=\\\"save-form\\\"]')||{}).innerText||''," +
+            "saveDisabled:Boolean((document.querySelector('[data-action=\\\"save-form\\\"]')||{}).disabled)," +
+            "toast:(document.getElementById('toast')||{}).innerText||''," +
+            "storage:(window.RenjiStore&&window.RenjiStore.diagnostics)?window.RenjiStore.diagnostics():null," +
+            "nativeState:(window.AndroidBridge&&window.AndroidBridge.loadState)?String(window.AndroidBridge.loadState()).slice(0,240):''" +
+            "})");
+        throw new AssertionError("Condition timed out: " + condition + " diagnostics=" + diagnostics);
     }
 
     @Test
@@ -72,7 +84,9 @@ public class AppSmokeTest {
 
         runJs("document.querySelector('[data-action=\"add-person\"]').click()");
         waitUntil("document.getElementById('person-form') !== null");
-        runJs("var f=document.getElementById('person-form');f.elements.name.value='測試人物';f.querySelector('[data-action=\"save-form\"]').click()");
+        runJs("var f=document.getElementById('person-form');f.elements.name.value='測試人物'");
+        assertEquals("true", evaluate("document.getElementById('person-form').checkValidity()"));
+        runJs("document.querySelector('#person-form [data-action=\"save-form\"]').click()");
         waitUntil("document.body.innerText.indexOf('測試人物') >= 0 && !document.getElementById('sheet').open");
 
         runJs("var c=Array.from(document.querySelectorAll('.person-card')).find(function(x){return x.innerText.indexOf('測試人物')>=0;});c.querySelector('[data-action=\"show-person\"]').click()");
