@@ -1,0 +1,9 @@
+{
+  "name": "renji-notebook",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "check": "node --check app/src/main/assets/web/logic.js && node --check app/src/main/assets/web/storage.js && node --check app/src/main/assets/web/app.js"
+  }
+}
