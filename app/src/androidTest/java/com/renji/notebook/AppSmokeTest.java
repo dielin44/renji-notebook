@@ -66,7 +66,7 @@ public class AppSmokeTest {
         String diagnostics = evaluate("JSON.stringify({" +
             "ready:document.readyState," +
             "sheetOpen:Boolean(document.getElementById('sheet')&&document.getElementById('sheet').open)," +
-            "formId:(document.querySelector('#sheet form')||{}).id||''," +
+            "formId:document.querySelector('#sheet form')?document.querySelector('#sheet form').getAttribute('id'):''," +
             "formValid:document.querySelector('#sheet form')?document.querySelector('#sheet form').checkValidity():null," +
             "formError:(document.querySelector('[data-form-error]')||{}).innerText||''," +
             "saveLabel:(document.querySelector('[data-action=\\\"save-form\\\"]')||{}).innerText||''," +

@@ -512,7 +512,7 @@
     const customTags = (item.tags || []).filter((tag) => !state.settings.tags.includes(tag));
     return `${sheetHead(editing ? '修改人物' : '新增人物', '先記重要資料，其餘日後補充即可。')}
       <form id="person-form" class="form-stack">
-        <input type="hidden" name="id" value="${attribute(item.id)}">
+        <input type="hidden" name="recordId" value="${attribute(item.id)}">
         <div class="form-grid">
           <label class="field"><span>姓名 *</span><input name="name" required maxlength="60" value="${attribute(item.name)}" autofocus></label>
           <label class="field"><span>暱稱</span><input name="nickname" maxlength="60" value="${attribute(item.nickname)}"></label>
@@ -580,7 +580,7 @@
     const categories = state.settings.categories.filter((category) => category.active !== false || chosen.has(category.id));
     return `${sheetHead(editing ? '修改事件' : '新增事件', '一次事件只需輸入一個總分變動，可同時影響多個分類。')}
       <form id="event-form" class="form-stack">
-        <input type="hidden" name="id" value="${attribute(item.id)}">
+        <input type="hidden" name="recordId" value="${attribute(item.id)}">
         <label class="field"><span>人物 *</span><select name="personId" required>${peopleOptions(item.personId)}</select></label>
         <div class="form-grid">
           <label class="field full"><span>事件標題 *</span><input name="title" required maxlength="100" autofocus value="${attribute(item.title)}" placeholder="例如：再次延後還款"></label>
@@ -630,7 +630,7 @@
     const isItem = item.kind === 'item';
     return `${sheetHead(editing ? '修改借貸' : '新增借貸', '金錢與物品分開記錄，部分歸還不會覆蓋原始資料。')}
       <form id="loan-form" class="form-stack">
-        <input type="hidden" name="id" value="${attribute(item.id)}">
+        <input type="hidden" name="recordId" value="${attribute(item.id)}">
         <label class="field"><span>人物 *</span><select name="personId" required>${peopleOptions(item.personId)}</select></label>
         <div class="choice-grid">
           <label class="choice"><input type="radio" name="kind" value="money" ${!isItem ? 'checked' : ''}><span>金錢</span></label>
@@ -728,7 +728,7 @@
 
   function categoryFormHtml(category) {
     return `${sheetHead(category ? '修改分類' : '新增分類', '分類會用來拆解人物風險，名稱應描述單一面向。')}
-      <form id="category-form" class="form-stack"><input type="hidden" name="id" value="${attribute(category ? category.id : '')}"><label class="field"><span>分類名稱 *</span><input name="name" required maxlength="30" value="${attribute(category ? category.name : '')}" placeholder="例如：情緒穩定" autofocus></label><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存分類</button></div></form>`;
+      <form id="category-form" class="form-stack"><input type="hidden" name="recordId" value="${attribute(category ? category.id : '')}"><label class="field"><span>分類名稱 *</span><input name="name" required maxlength="30" value="${attribute(category ? category.name : '')}" placeholder="例如：情緒穩定" autofocus></label><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存分類</button></div></form>`;
   }
 
   function tagFormHtml() {
@@ -1093,7 +1093,8 @@
   }
 
   async function saveManagedForm(form, triggerButton) {
-    if (!form || !Logic.isManagedFormId(form.id)) return;
+    const formId = form && form.getAttribute ? form.getAttribute('id') : '';
+    if (!form || !Logic.isManagedFormId(formId)) return;
     lastInteractionAt = Date.now();
     const existingError = form.querySelector('[data-form-error]');
     if (existingError) existingError.remove();
@@ -1110,14 +1111,14 @@
       button.textContent = '處理中…';
     }
     try {
-      if (form.id === 'person-form') await submitPerson(form);
-      if (form.id === 'event-form') await submitEvent(form);
-      if (form.id === 'loan-form') await submitLoan(form);
-      if (form.id === 'transaction-form') await submitTransaction(form);
-      if (form.id === 'category-form') await submitCategory(form);
-      if (form.id === 'tag-form') await submitTag(form);
-      if (form.id === 'pin-form') await submitPin(form);
-      if (form.id === 'unlock-form') await submitUnlock(form);
+      if (formId === 'person-form') await submitPerson(form);
+      if (formId === 'event-form') await submitEvent(form);
+      if (formId === 'loan-form') await submitLoan(form);
+      if (formId === 'transaction-form') await submitTransaction(form);
+      if (formId === 'category-form') await submitCategory(form);
+      if (formId === 'tag-form') await submitTag(form);
+      if (formId === 'pin-form') await submitPin(form);
+      if (formId === 'unlock-form') await submitUnlock(form);
     } catch (error) {
       state = Logic.normalizeState(snapshot);
       console.error(error);
@@ -1132,14 +1133,15 @@
 
   function handleSubmit(event) {
     const form = event.target;
-    if (!form.matches('form') || !Logic.isManagedFormId(form.id)) return;
+    const formId = form && form.getAttribute ? form.getAttribute('id') : '';
+    if (!form.matches('form') || !Logic.isManagedFormId(formId)) return;
     event.preventDefault();
     saveManagedForm(form, form.querySelector('[data-action="save-form"]'));
   }
 
   async function submitPerson(form) {
     const data = new FormData(form);
-    const id = String(data.get('id') || '');
+    const id = String(data.get('recordId') || '');
     const existing = personById(id);
     const chosenTags = data.getAll('tags').map(String);
     const customTags = splitTags(data.get('customTags'));
@@ -1169,7 +1171,7 @@
 
   async function submitEvent(form) {
     const data = new FormData(form);
-    const id = String(data.get('id') || '');
+    const id = String(data.get('recordId') || '');
     const existing = eventById(id);
     const input = form.elements.attachments;
     const newAttachments = await imageAttachments(input && input.files);
@@ -1200,7 +1202,7 @@
 
   async function submitLoan(form) {
     const data = new FormData(form);
-    const id = String(data.get('id') || '');
+    const id = String(data.get('recordId') || '');
     const existing = loanById(id);
     const kind = String(data.get('kind') || 'money');
     if (existing && existing.transactions && existing.transactions.length && kind !== existing.kind) {
@@ -1295,7 +1297,7 @@
 
   async function submitCategory(form) {
     const data = new FormData(form);
-    const id = String(data.get('id') || '');
+    const id = String(data.get('recordId') || '');
     const name = String(data.get('name') || '').trim();
     if (!name) throw new Error('請輸入分類名稱');
     const duplicate = state.settings.categories.some((category) => category.name === name && category.id !== id);
