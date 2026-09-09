@@ -45,12 +45,12 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
-      - name: Run Android WebView smoke test
+      - name: Run Android 10 WebView smoke test
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 29
           arch: x86_64
-          profile: pixel_6
+          profile: pixel_2
           disable-animations: true
           script: gradle --no-daemon :app:connectedDebugAndroidTest
 
