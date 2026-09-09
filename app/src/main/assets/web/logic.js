@@ -21,6 +21,11 @@
     { key: 'purple', min: 95, max: 100, label: '高度信任', color: '#a776ff' }
   ];
 
+  const MANAGED_FORM_IDS = [
+    'person-form', 'event-form', 'loan-form', 'transaction-form',
+    'category-form', 'tag-form', 'pin-form', 'unlock-form'
+  ];
+
   function nowIso() {
     return new Date().toISOString();
   }
@@ -44,6 +49,16 @@
 
   function clampScore(value) {
     return Math.round(clamp(value, 0, 100));
+  }
+
+  function signedDelta(sign, amount) {
+    const direction = Number(sign) < 0 ? -1 : 1;
+    const points = Math.round(clamp(amount, 0, 100));
+    return points === 0 ? 0 : direction * points;
+  }
+
+  function isManagedFormId(value) {
+    return MANAGED_FORM_IDS.includes(String(value || ''));
   }
 
   function scoreBand(value) {
@@ -334,6 +349,7 @@
     dashboardSummary,
     deepClone,
     filterPeople,
+    isManagedFormId,
     loanRemaining,
     loanStatus,
     lowestCategories,
@@ -344,6 +360,7 @@
     personLoans,
     personScore,
     scoreBand,
+    signedDelta,
     searchablePersonText,
     transactionTotal,
     uid

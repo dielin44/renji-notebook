@@ -850,6 +850,53 @@ select:focus {
   background: rgba(217, 173, 74, 0.1);
 }
 
+.score-sign-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.score-sign {
+  min-height: 47px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #11151a;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.score-sign.positive.active {
+  border-color: #42b978;
+  background: rgba(87, 216, 137, 0.14);
+  color: #75e9a5;
+}
+
+.score-sign.negative.active {
+  border-color: #db5358;
+  background: rgba(255, 90, 95, 0.14);
+  color: #ff7d81;
+}
+
+.score-amount-label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.score-amount-label > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.attachment-status {
+  min-height: 18px;
+  color: #75e9a5;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .check-list {
   display: flex;
   flex-wrap: wrap;

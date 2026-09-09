@@ -2,11 +2,13 @@ package com.renji.notebook;
 
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.util.AtomicFile;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
@@ -16,12 +18,18 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_FILE_CHOOSER = 4101;
     private static final int REQUEST_SAVE_FILE = 4102;
+    private static final String STATE_FILE_NAME = "renji-notebook-state.json";
 
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
@@ -77,7 +85,28 @@ public class MainActivity extends Activity {
                     filePathCallback.onReceiveValue(null);
                 }
                 filePathCallback = callback;
-                Intent intent = fileChooserParams.createIntent();
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+
+                String[] acceptedTypes = fileChooserParams.getAcceptTypes();
+                ArrayList<String> usableTypes = new ArrayList<>();
+                if (acceptedTypes != null) {
+                    for (String type : acceptedTypes) {
+                        if (type != null && !type.trim().isEmpty()) {
+                            usableTypes.add(type.trim());
+                        }
+                    }
+                }
+                if (usableTypes.isEmpty()) {
+                    intent.setType("*/*");
+                } else if (usableTypes.size() == 1) {
+                    intent.setType(usableTypes.get(0));
+                } else {
+                    intent.setType("*/*");
+                    intent.putExtra(Intent.EXTRA_MIME_TYPES, usableTypes.toArray(new String[0]));
+                }
+                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,
+                    fileChooserParams.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE);
                 try {
                     startActivityForResult(intent, REQUEST_FILE_CHOOSER);
                 } catch (ActivityNotFoundException error) {
@@ -98,7 +127,7 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
 
         if (requestCode == REQUEST_FILE_CHOOSER) {
-            Uri[] result = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+            Uri[] result = collectSelectedUris(resultCode, data);
             if (filePathCallback != null) {
                 filePathCallback.onReceiveValue(result);
                 filePathCallback = null;
@@ -124,6 +153,25 @@ public class MainActivity extends Activity {
         }
     }
 
+    private Uri[] collectSelectedUris(int resultCode, Intent data) {
+        if (resultCode != RESULT_OK || data == null) {
+            return null;
+        }
+        ArrayList<Uri> selected = new ArrayList<>();
+        ClipData clipData = data.getClipData();
+        if (clipData != null) {
+            for (int index = 0; index < clipData.getItemCount(); index += 1) {
+                Uri uri = clipData.getItemAt(index).getUri();
+                if (uri != null && !selected.contains(uri)) {
+                    selected.add(uri);
+                }
+            }
+        } else if (data.getData() != null) {
+            selected.add(data.getData());
+        }
+        return selected.isEmpty() ? null : selected.toArray(new Uri[0]);
+    }
+
     @Override
     public void onBackPressed() {
         webView.evaluateJavascript("window.RenjiApp && window.RenjiApp.handleBack ? window.RenjiApp.handleBack() : false", value -> {
@@ -147,9 +195,62 @@ public class MainActivity extends Activity {
     }
 
     public class AppBridge {
+        private AtomicFile stateFile() {
+            return new AtomicFile(new File(getFilesDir(), STATE_FILE_NAME));
+        }
+
         @JavascriptInterface
         public String getPlatform() {
             return "android";
+        }
+
+        @JavascriptInterface
+        public String getStorageMode() {
+            return "native-file-v1";
+        }
+
+        @JavascriptInterface
+        public synchronized String loadState() {
+            AtomicFile file = stateFile();
+            try (FileInputStream input = file.openRead();
+                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[8192];
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    output.write(buffer, 0, count);
+                }
+                return output.toString(StandardCharsets.UTF_8.name());
+            } catch (Exception error) {
+                return "";
+            }
+        }
+
+        @JavascriptInterface
+        public synchronized boolean saveState(String json) {
+            if (json == null || json.trim().isEmpty()) {
+                return false;
+            }
+            AtomicFile file = stateFile();
+            FileOutputStream output = null;
+            try {
+                output = file.startWrite();
+                output.write(json.getBytes(StandardCharsets.UTF_8));
+                output.flush();
+                file.finishWrite(output);
+                return true;
+            } catch (Exception error) {
+                if (output != null) {
+                    file.failWrite(output);
+                }
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public synchronized boolean clearState() {
+            AtomicFile file = stateFile();
+            file.delete();
+            return !file.getBaseFile().exists();
         }
 
         @JavascriptInterface

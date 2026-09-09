@@ -14,6 +14,21 @@ test('分數顏色邊界符合規格', () => {
   assert.equal(Logic.scoreBand(100).key, 'purple');
 });
 
+test('加分與扣分方向可明確轉換', () => {
+  assert.equal(Logic.signedDelta(1, 12), 12);
+  assert.equal(Logic.signedDelta(-1, 12), -12);
+  assert.equal(Logic.signedDelta(1, 999), 100);
+  assert.equal(Logic.signedDelta(-1, -5), 0);
+});
+
+test('確認視窗表單不會被資料表單處理器攔截', () => {
+  assert.equal(Logic.isManagedFormId('person-form'), true);
+  assert.equal(Logic.isManagedFormId('event-form'), true);
+  assert.equal(Logic.isManagedFormId('category-form'), true);
+  assert.equal(Logic.isManagedFormId(''), false);
+  assert.equal(Logic.isManagedFormId('confirm-form'), false);
+});
+
 test('人物總分與分類分數各自正確累積', () => {
   const state = Logic.createDefaultState();
   state.people.push({ id: 'p1', name: '測試', startScore: 80, categoryStarts: {}, tags: [] });

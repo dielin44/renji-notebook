@@ -51,6 +51,22 @@
     return `${number > 0 ? '+' : ''}${number}`;
   }
 
+  function deltaControlHtml(prefix, value, label, required) {
+    const numeric = Math.round(Number(value) || 0);
+    const sign = numeric < 0 ? -1 : 1;
+    const amount = Math.abs(numeric);
+    return `<div class="field full" data-score-control>
+      <span>${escapeHtml(label)}</span>
+      <input type="hidden" name="${attribute(prefix)}Sign" value="${sign}" data-score-sign-value>
+      <div class="score-sign-grid">
+        <button type="button" class="score-sign positive ${sign > 0 ? 'active' : ''}" data-action="set-score-sign" data-sign="1" aria-pressed="${sign > 0}">＋ 加分</button>
+        <button type="button" class="score-sign negative ${sign < 0 ? 'active' : ''}" data-action="set-score-sign" data-sign="-1" aria-pressed="${sign < 0}">－ 扣分</button>
+      </div>
+      <label class="score-amount-label"><span>分數</span><input name="${attribute(prefix)}Amount" type="number" min="0" max="100" step="1" inputmode="numeric" value="${amount}" ${required ? 'required' : ''}></label>
+      <small>先選加分或扣分，再輸入 0–100。</small>
+    </div>`;
+  }
+
   function dateText(value, includeTime) {
     if (!value) return '未設定';
     const date = new Date(value.length <= 10 ? `${value}T12:00:00` : value);
@@ -549,7 +565,7 @@
         <div class="form-grid">
           <label class="field full"><span>事件標題 *</span><input name="title" required maxlength="100" autofocus value="${attribute(item.title)}" placeholder="例如：再次延後還款"></label>
           <label class="field"><span>日期時間 *</span><input name="occurredAt" type="datetime-local" required value="${attribute(localDateValue(item.occurredAt, true))}"></label>
-          <label class="field"><span>加分／扣分 *</span><input name="delta" type="number" min="-100" max="100" required value="${attribute(item.delta)}" placeholder="扣分請輸入負數"><small>例如 +5 或 −10</small></label>
+          ${deltaControlHtml('delta', item.delta, '加分／扣分 *', true)}
           <label class="field full"><span>事件經過</span><textarea name="detail" maxlength="5000" placeholder="記錄具體行為、承諾及結果">${escapeHtml(item.detail)}</textarea></label>
         </div>
         <div class="field"><span>影響分類</span><div class="check-list">${categories.map((category) => `<label class="check-chip"><input type="checkbox" name="categoryIds" value="${attribute(category.id)}" ${chosen.has(category.id) ? 'checked' : ''}><span>${escapeHtml(category.name)}</span></label>`).join('')}</div><small>未勾選時只影響人物總分。</small></div>
@@ -557,7 +573,7 @@
           <label class="choice"><input type="checkbox" name="important" ${item.important ? 'checked' : ''}><span>重要事件</span></label>
           <label class="choice"><input type="checkbox" name="followUp" ${item.followUp ? 'checked' : ''}><span>需要後續觀察</span></label>
         </div>
-        <label class="field"><span>新增照片證據</span><input name="attachments" type="file" accept="image/*" multiple><small>每次最多 3 張，會壓縮後保存在本機。</small></label>
+        <label class="field"><span>新增照片證據</span><input name="attachments" type="file" accept="image/*" multiple data-role="attachment-input"><small>每次最多 3 張，會壓縮後保存在本機。</small><strong class="attachment-status" data-attachment-status aria-live="polite"></strong></label>
         ${attachmentHtml(item.attachments)}
         <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="submit">${editing ? '儲存修改' : '儲存事件'}</button></div>
       </form>`;
@@ -617,7 +633,7 @@
           <label class="field"><span>約定歸還日期</span><input name="dueAt" type="date" value="${attribute(item.dueAt || '')}"></label>
           <label class="field full"><span>備註</span><textarea name="note" maxlength="3000" placeholder="原因、付款方式、歸還約定等">${escapeHtml(item.note)}</textarea></label>
         </div>
-        <label class="field"><span>新增照片／截圖</span><input name="attachments" type="file" accept="image/*" multiple><small>每次最多 3 張，會壓縮後保存在本機。</small></label>
+        <label class="field"><span>新增照片／截圖</span><input name="attachments" type="file" accept="image/*" multiple data-role="attachment-input"><small>每次最多 3 張，會壓縮後保存在本機。</small><strong class="attachment-status" data-attachment-status aria-live="polite"></strong></label>
         ${attachmentHtml(item.attachments)}
         ${editing && item.transactions && item.transactions.length ? '<div class="notice">修改原始金額或數量時，既有還款／歸還紀錄仍會保留。</div>' : ''}
         <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="submit">${editing ? '儲存修改' : '建立借貸'}</button></div>
@@ -683,7 +699,7 @@
         </div>
         <div class="notice">借貸不會自動影響評分。若這次行為值得加分或扣分，可在下方主動輸入。</div>
         <div class="form-grid">
-          <label class="field"><span>同時加／扣分</span><input name="scoreDelta" type="number" min="-100" max="100" value="0"></label>
+          ${deltaControlHtml('scoreDelta', 0, '同時加分／扣分', false)}
           <label class="field"><span>影響分類</span><select name="scoreCategory"><option value="">只改人物總分</option>${state.settings.categories.filter((category) => category.active !== false).map((category) => `<option value="${attribute(category.id)}" ${category.id === suggestedCategory ? 'selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}</select></label>
         </div>
         <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="submit">儲存紀錄</button></div>
@@ -755,6 +771,20 @@
     const personId = element.dataset.personId || '';
     const eventId = element.dataset.eventId || '';
     const loanId = element.dataset.loanId || '';
+
+    if (action === 'set-score-sign') {
+      const control = element.closest('[data-score-control]');
+      if (!control) return;
+      const sign = Number(element.dataset.sign) < 0 ? -1 : 1;
+      const value = control.querySelector('[data-score-sign-value]');
+      if (value) value.value = String(sign);
+      control.querySelectorAll('[data-action="set-score-sign"]').forEach((button) => {
+        const active = Number(button.dataset.sign) === sign;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+      });
+      return;
+    }
 
     if (action === 'nav') {
       currentView = element.dataset.view;
@@ -980,6 +1010,12 @@
       updateLoanFormKind();
       return;
     }
+    if (target.matches('[data-role="attachment-input"]')) {
+      const count = Math.min(3, target.files ? target.files.length : 0);
+      const status = target.closest('.field') && target.closest('.field').querySelector('[data-attachment-status]');
+      if (status) status.textContent = count ? `已選擇 ${count} 張照片，儲存時會加入事件` : '';
+      return;
+    }
     if (target.id === 'backup-file') {
       importBackupFile(target.files && target.files[0]);
     }
@@ -1003,9 +1039,14 @@
     return String(value || '').split(/[,，、\n]+/).map((item) => item.trim()).filter(Boolean);
   }
 
+  function readSignedDelta(data, prefix) {
+    return Logic.signedDelta(data.get(`${prefix}Sign`), data.get(`${prefix}Amount`));
+  }
+
   async function handleSubmit(event) {
     const form = event.target;
     if (!form.matches('form')) return;
+    if (!Logic.isManagedFormId(form.id)) return;
     event.preventDefault();
     lastInteractionAt = Date.now();
     const submitButton = form.querySelector('[type="submit"]');
@@ -1070,7 +1111,7 @@
       personId: String(data.get('personId') || ''),
       title: String(data.get('title') || '').trim(),
       detail: String(data.get('detail') || '').trim(),
-      delta: Math.round(Number(data.get('delta')) || 0),
+      delta: readSignedDelta(data, 'delta'),
       categoryIds: data.getAll('categoryIds').map(String),
       important: data.has('important'),
       followUp: data.has('followUp'),
@@ -1154,7 +1195,7 @@
     loan.transactions.push(transaction);
     loan.updatedAt = stamp;
 
-    const delta = Math.round(Number(data.get('scoreDelta')) || 0);
+    const delta = readSignedDelta(data, 'scoreDelta');
     if (delta !== 0) {
       const category = String(data.get('scoreCategory') || '');
       state.events.push({
