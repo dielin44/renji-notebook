@@ -11,7 +11,9 @@ import android.net.Uri;
 
 import androidx.test.ext.junit.rules.ActivityScenarioRule;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
 
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -26,6 +28,17 @@ public class AppSmokeTest {
     public ActivityScenarioRule<MainActivity> activityRule =
         new ActivityScenarioRule<>(MainActivity.class);
 
+    @Before
+    public void waitForWebPage() throws Exception {
+        AtomicReference<MainActivity> activityReference = new AtomicReference<>();
+        activityRule.getScenario().onActivity(activityReference::set);
+        MainActivity activity = activityReference.get();
+        assertNotNull("Activity was not created", activity);
+        assertTrue("WebView page did not finish loading",
+            activity.awaitWebPageForTesting(45, TimeUnit.SECONDS));
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+    }
+
     private String evaluate(String script) throws Exception {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<String> result = new AtomicReference<>();
@@ -35,7 +48,8 @@ public class AppSmokeTest {
                 latch.countDown();
             })
         );
-        assertTrue("JavaScript evaluation timed out", latch.await(12, TimeUnit.SECONDS));
+        assertTrue("JavaScript evaluation timed out for: " + script,
+            latch.await(30, TimeUnit.SECONDS));
         return result.get();
     }
 

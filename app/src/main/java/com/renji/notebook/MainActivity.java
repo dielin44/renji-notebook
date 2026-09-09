@@ -25,6 +25,8 @@ import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_FILE_CHOOSER = 4101;
@@ -36,6 +38,7 @@ public class MainActivity extends Activity {
     private byte[] pendingExport;
     private String pendingExportName;
     private String pendingExportMime;
+    private final CountDownLatch webPageLoaded = new CountDownLatch(1);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -59,6 +62,15 @@ public class MainActivity extends Activity {
 
         webView.addJavascriptInterface(new AppBridge(), "AndroidBridge");
         webView.setWebViewClient(new WebViewClient() {
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (url != null && url.endsWith("/index.html")) {
+                    webPageLoaded.countDown();
+                }
+            }
+
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 if (url.startsWith("tel:") || url.startsWith("sms:") || url.startsWith("mailto:")) {
@@ -174,6 +186,10 @@ public class MainActivity extends Activity {
 
     WebView getWebViewForTesting() {
         return webView;
+    }
+
+    boolean awaitWebPageForTesting(long timeout, TimeUnit unit) throws InterruptedException {
+        return webPageLoaded.await(timeout, unit);
     }
 
     @Override
