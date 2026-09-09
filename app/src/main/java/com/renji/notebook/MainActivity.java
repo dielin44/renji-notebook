@@ -153,7 +153,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private Uri[] collectSelectedUris(int resultCode, Intent data) {
+    Uri[] collectSelectedUris(int resultCode, Intent data) {
         if (resultCode != RESULT_OK || data == null) {
             return null;
         }
@@ -170,6 +170,10 @@ public class MainActivity extends Activity {
             selected.add(data.getData());
         }
         return selected.isEmpty() ? null : selected.toArray(new Uri[0]);
+    }
+
+    WebView getWebViewForTesting() {
+        return webView;
     }
 
     @Override

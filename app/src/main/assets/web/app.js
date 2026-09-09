@@ -8,6 +8,7 @@
   const sheetContent = document.getElementById('sheet-content');
   const confirmDialog = document.getElementById('confirm-dialog');
   const toastElement = document.getElementById('toast');
+  const APP_VERSION = '1.0.2';
 
   let state = Logic.createDefaultState();
   let currentView = 'people';
@@ -15,6 +16,7 @@
   let toastTimer = null;
   let deferredInstallPrompt = null;
   let lastInteractionAt = Date.now();
+  let confirmResolver = null;
 
   const filters = {
     people: { query: '', filter: 'all', categoryId: '', sort: 'scoreLow' },
@@ -136,6 +138,17 @@
 
   function currentTitle() {
     return viewMeta[currentView] ? viewMeta[currentView].title : '人物';
+  }
+
+  function storageModeText() {
+    try {
+      if (window.AndroidBridge && typeof window.AndroidBridge.getStorageMode === 'function') {
+        return window.AndroidBridge.getStorageMode() === 'native-file-v1' ? 'Android 原生檔案' : 'Android 本機儲存';
+      }
+    } catch (error) {
+      // Browser fallback is shown below.
+    }
+    return '瀏覽器本機儲存';
   }
 
   function topBarHtml() {
@@ -443,6 +456,13 @@
         ${deferredInstallPrompt ? '<button class="button full" style="margin-top:9px" data-action="install-app">安裝到桌面</button>' : ''}
       </section>
 
+      <section class="settings-card">
+        <h3>系統狀態</h3>
+        <div class="settings-line"><strong>App 版本</strong><span class="settings-value">v${APP_VERSION}</span></div>
+        <div class="settings-line"><strong>資料儲存</strong><span class="settings-value">${escapeHtml(storageModeText())}</span></div>
+        <p>按下儲存後會直接執行，不依賴 WebView 的表單送出機制。</p>
+      </section>
+
       <section class="settings-card danger-zone">
         <h3>測試與清除</h3>
         <p>示範資料可以協助先看完整畫面；清除動作無法復原。</p>
@@ -505,7 +525,7 @@
         </div>
         <div class="field"><span>常用標籤</span><div class="check-list">${state.settings.tags.map((tag) => `<label class="check-chip"><input type="checkbox" name="tags" value="${attribute(tag)}" ${selectedTags.has(tag) ? 'checked' : ''}><span>${escapeHtml(tag)}</span></label>`).join('')}</div></div>
         <label class="field"><span>其他標籤</span><input name="customTags" value="${attribute(customTags.join('、'))}" placeholder="以逗號或頓號分隔"></label>
-        <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="submit">${editing ? '儲存修改' : '建立人物'}</button></div>
+        <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">${editing ? '儲存修改' : '建立人物'}</button></div>
       </form>`;
   }
 
@@ -575,7 +595,7 @@
         </div>
         <label class="field"><span>新增照片證據</span><input name="attachments" type="file" accept="image/*" multiple data-role="attachment-input"><small>每次最多 3 張，會壓縮後保存在本機。</small><strong class="attachment-status" data-attachment-status aria-live="polite"></strong></label>
         ${attachmentHtml(item.attachments)}
-        <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="submit">${editing ? '儲存修改' : '儲存事件'}</button></div>
+        <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">${editing ? '儲存修改' : '儲存事件'}</button></div>
       </form>`;
   }
 
@@ -636,7 +656,7 @@
         <label class="field"><span>新增照片／截圖</span><input name="attachments" type="file" accept="image/*" multiple data-role="attachment-input"><small>每次最多 3 張，會壓縮後保存在本機。</small><strong class="attachment-status" data-attachment-status aria-live="polite"></strong></label>
         ${attachmentHtml(item.attachments)}
         ${editing && item.transactions && item.transactions.length ? '<div class="notice">修改原始金額或數量時，既有還款／歸還紀錄仍會保留。</div>' : ''}
-        <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="submit">${editing ? '儲存修改' : '建立借貸'}</button></div>
+        <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">${editing ? '儲存修改' : '建立借貸'}</button></div>
       </form>`;
   }
 
@@ -702,21 +722,21 @@
           ${deltaControlHtml('scoreDelta', 0, '同時加分／扣分', false)}
           <label class="field"><span>影響分類</span><select name="scoreCategory"><option value="">只改人物總分</option>${state.settings.categories.filter((category) => category.active !== false).map((category) => `<option value="${attribute(category.id)}" ${category.id === suggestedCategory ? 'selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}</select></label>
         </div>
-        <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="submit">儲存紀錄</button></div>
+        <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存紀錄</button></div>
       </form>`;
   }
 
   function categoryFormHtml(category) {
     return `${sheetHead(category ? '修改分類' : '新增分類', '分類會用來拆解人物風險，名稱應描述單一面向。')}
-      <form id="category-form" class="form-stack"><input type="hidden" name="id" value="${attribute(category ? category.id : '')}"><label class="field"><span>分類名稱 *</span><input name="name" required maxlength="30" value="${attribute(category ? category.name : '')}" placeholder="例如：情緒穩定" autofocus></label><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="submit">儲存分類</button></div></form>`;
+      <form id="category-form" class="form-stack"><input type="hidden" name="id" value="${attribute(category ? category.id : '')}"><label class="field"><span>分類名稱 *</span><input name="name" required maxlength="30" value="${attribute(category ? category.name : '')}" placeholder="例如：情緒穩定" autofocus></label><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存分類</button></div></form>`;
   }
 
   function tagFormHtml() {
-    return `${sheetHead('新增常用標籤', '常用標籤會出現在人物建立與修改畫面。')}<form id="tag-form" class="form-stack"><label class="field"><span>標籤名稱 *</span><input name="name" required maxlength="30" placeholder="例如：高情緒成本" autofocus></label><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="submit">新增標籤</button></div></form>`;
+    return `${sheetHead('新增常用標籤', '常用標籤會出現在人物建立與修改畫面。')}<form id="tag-form" class="form-stack"><label class="field"><span>標籤名稱 *</span><input name="name" required maxlength="30" placeholder="例如：高情緒成本" autofocus></label><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">新增標籤</button></div></form>`;
   }
 
   function pinFormHtml() {
-    return `${sheetHead(state.settings.pinHash ? '變更 PIN' : '設定 PIN', '請設定 4 至 8 位數字；忘記 PIN 無法從畫面內找回。')}<form id="pin-form" class="form-stack"><label class="field"><span>新 PIN *</span><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" required autofocus></label><label class="field"><span>再次輸入 *</span><input name="confirmPin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" required></label><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="submit">儲存 PIN</button></div></form>`;
+    return `${sheetHead(state.settings.pinHash ? '變更 PIN' : '設定 PIN', '請設定 4 至 8 位數字；忘記 PIN 無法從畫面內找回。')}<form id="pin-form" class="form-stack"><label class="field"><span>新 PIN *</span><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" required autofocus></label><label class="field"><span>再次輸入 *</span><input name="confirmPin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" required></label><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存 PIN</button></div></form>`;
   }
 
   function toast(message) {
@@ -735,15 +755,22 @@
   }
 
   function confirmAction(title, message, confirmLabel) {
+    if (confirmResolver) finishConfirm(false);
     document.getElementById('confirm-title').textContent = title;
     document.getElementById('confirm-message').textContent = message;
     const accept = document.getElementById('confirm-accept');
     accept.textContent = confirmLabel || '確認';
-    confirmDialog.returnValue = '';
     confirmDialog.showModal();
     return new Promise((resolve) => {
-      confirmDialog.addEventListener('close', () => resolve(confirmDialog.returnValue === 'confirm'), { once: true });
+      confirmResolver = resolve;
     });
+  }
+
+  function finishConfirm(accepted) {
+    const resolve = confirmResolver;
+    confirmResolver = null;
+    if (confirmDialog.open) confirmDialog.close();
+    if (resolve) resolve(Boolean(accepted));
   }
 
   function updateVisibleList(view) {
@@ -771,6 +798,14 @@
     const personId = element.dataset.personId || '';
     const eventId = element.dataset.eventId || '';
     const loanId = element.dataset.loanId || '';
+
+    if (action === 'confirm-cancel') return finishConfirm(false);
+    if (action === 'confirm-accept') return finishConfirm(true);
+    if (action === 'save-form') {
+      const form = element.closest('form');
+      if (form) return saveManagedForm(form, element);
+      return;
+    }
 
     if (action === 'set-score-sign') {
       const control = element.closest('[data-score-control]');
@@ -1043,14 +1078,37 @@
     return Logic.signedDelta(data.get(`${prefix}Sign`), data.get(`${prefix}Amount`));
   }
 
-  async function handleSubmit(event) {
-    const form = event.target;
-    if (!form.matches('form')) return;
-    if (!Logic.isManagedFormId(form.id)) return;
-    event.preventDefault();
+  function showFormError(form, error) {
+    const message = error && error.message ? error.message : '儲存失敗，請重新嘗試';
+    let panel = form.querySelector('[data-form-error]');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.className = 'notice danger form-error';
+      panel.setAttribute('data-form-error', '');
+      form.insertBefore(panel, form.firstChild);
+    }
+    panel.textContent = message;
+    panel.scrollIntoView({ block: 'center', behavior: 'auto' });
+    toast(message);
+  }
+
+  async function saveManagedForm(form, triggerButton) {
+    if (!form || !Logic.isManagedFormId(form.id)) return;
     lastInteractionAt = Date.now();
-    const submitButton = form.querySelector('[type="submit"]');
-    if (submitButton) submitButton.disabled = true;
+    const existingError = form.querySelector('[data-form-error]');
+    if (existingError) existingError.remove();
+    if (typeof form.checkValidity === 'function' && !form.checkValidity()) {
+      if (typeof form.reportValidity === 'function') form.reportValidity();
+      showFormError(form, new Error('請先完成所有必填欄位'));
+      return;
+    }
+    const snapshot = Logic.deepClone(state);
+    const button = triggerButton || form.querySelector('[data-action="save-form"]');
+    const originalLabel = button ? button.textContent : '';
+    if (button) {
+      button.disabled = true;
+      button.textContent = '處理中…';
+    }
     try {
       if (form.id === 'person-form') await submitPerson(form);
       if (form.id === 'event-form') await submitEvent(form);
@@ -1061,11 +1119,22 @@
       if (form.id === 'pin-form') await submitPin(form);
       if (form.id === 'unlock-form') await submitUnlock(form);
     } catch (error) {
+      state = Logic.normalizeState(snapshot);
       console.error(error);
-      toast(error && error.message ? error.message : '儲存失敗，請重試');
+      showFormError(form, error);
     } finally {
-      if (submitButton && document.contains(submitButton)) submitButton.disabled = false;
+      if (button && document.contains(button)) {
+        button.disabled = false;
+        button.textContent = originalLabel;
+      }
     }
+  }
+
+  function handleSubmit(event) {
+    const form = event.target;
+    if (!form.matches('form') || !Logic.isManagedFormId(form.id)) return;
+    event.preventDefault();
+    saveManagedForm(form, form.querySelector('[data-action="save-form"]'));
   }
 
   async function submitPerson(form) {
@@ -1407,12 +1476,12 @@
   }
 
   function renderLockScreen() {
-    app.innerHTML = `<main class="lock-screen"><img src="icons/icon-192.png" alt="人際小本本"><h1>人際小本本</h1><p>輸入 PIN 查看人際紀錄</p><form id="unlock-form" class="form-stack"><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" maxlength="8" aria-label="PIN" autofocus><button class="button primary" type="submit">解鎖</button></form></main>`;
+    app.innerHTML = `<main class="lock-screen"><img src="icons/icon-192.png" alt="人際小本本"><h1>人際小本本</h1><p>輸入 PIN 查看人際紀錄</p><form id="unlock-form" class="form-stack"><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" maxlength="8" aria-label="PIN" autofocus><button class="button primary" type="button" data-action="save-form">解鎖</button></form></main>`;
   }
 
   function handleBack() {
     if (confirmDialog.open) {
-      confirmDialog.close('cancel');
+      finishConfirm(false);
       return true;
     }
     if (sheet.open) {
@@ -1447,12 +1516,21 @@
   document.addEventListener('click', handleClick);
   document.addEventListener('input', handleInput);
   document.addEventListener('change', handleChange);
-  document.addEventListener('submit', (event) => handleSubmit(event));
+  document.addEventListener('submit', handleSubmit, true);
   document.addEventListener('pointerdown', () => { lastInteractionAt = Date.now(); }, { passive: true });
   document.addEventListener('keydown', () => { lastInteractionAt = Date.now(); }, { passive: true });
 
   sheet.addEventListener('click', (event) => {
     if (event.target === sheet) closeSheet();
+  });
+
+  confirmDialog.addEventListener('click', (event) => {
+    if (event.target === confirmDialog) finishConfirm(false);
+  });
+
+  confirmDialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    finishConfirm(false);
   });
 
   window.addEventListener('beforeinstallprompt', (event) => {

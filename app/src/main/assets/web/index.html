@@ -29,15 +29,15 @@
   </dialog>
 
   <dialog id="confirm-dialog" class="confirm-dialog" aria-modal="true">
-    <form method="dialog" class="confirm-card">
+    <div class="confirm-card">
       <div class="confirm-icon">!</div>
       <h2 id="confirm-title">請確認</h2>
       <p id="confirm-message"></p>
       <div class="confirm-actions">
-        <button value="cancel" class="button secondary">取消</button>
-        <button value="confirm" id="confirm-accept" class="button danger">確認</button>
+        <button type="button" class="button secondary" data-action="confirm-cancel">取消</button>
+        <button type="button" id="confirm-accept" class="button danger" data-action="confirm-accept">確認</button>
       </div>
-    </form>
+    </div>
   </dialog>
 
   <div id="toast" class="toast" role="status"></div>
