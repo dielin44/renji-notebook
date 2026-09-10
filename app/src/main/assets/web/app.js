@@ -8,7 +8,7 @@
   const sheetContent = document.getElementById('sheet-content');
   const confirmDialog = document.getElementById('confirm-dialog');
   const toastElement = document.getElementById('toast');
-  const APP_VERSION = '1.0.2';
+  const APP_VERSION = '1.0.3';
 
   let state = Logic.createDefaultState();
   let currentView = 'people';
@@ -107,6 +107,19 @@
     return escapeHtml(Array.from(name)[0] || '?');
   }
 
+  function avatarHtml(person, extraClass) {
+    const className = `avatar ${extraClass || ''}`.trim();
+    if (person.avatar && person.avatar.dataUrl) {
+      return `<button type="button" class="${className} avatar-button" data-action="view-avatar" data-person-id="${attribute(person.id)}" aria-label="查看 ${attribute(person.name || '人物')} 的大頭照原圖"><img src="${attribute(person.avatar.dataUrl)}" alt="${attribute(person.name || '人物')}的大頭照"></button>`;
+    }
+    return `<div class="${className}" aria-hidden="true">${initials(person)}</div>`;
+  }
+
+  function avatarViewerHtml(person) {
+    if (!person.avatar || !person.avatar.dataUrl) return '';
+    return `${sheetHead(`${person.name || '人物'}｜大頭照`, '以較大尺寸顯示已儲存的照片。')}<div class="avatar-viewer"><img src="${attribute(person.avatar.dataUrl)}" alt="${attribute(person.name || '人物')}的大頭照原圖"></div>`;
+  }
+
   function tagHtml(tag, variant) {
     return `<span class="tag ${variant || ''}">${escapeHtml(tag)}</span>`;
   }
@@ -142,13 +155,22 @@
 
   function storageModeText() {
     try {
-      if (window.AndroidBridge && typeof window.AndroidBridge.getStorageMode === 'function') {
-        return window.AndroidBridge.getStorageMode() === 'native-file-v1' ? 'Android 原生檔案' : 'Android 本機儲存';
+      if (window.AndroidBridge) {
+        return String(window.AndroidBridge.getStorageMode()) === 'native-file-v1' ? 'Android 原生檔案' : 'Android 本機儲存';
       }
     } catch (error) {
       // Browser fallback is shown below.
     }
     return '瀏覽器本機儲存';
+  }
+
+  function storagePathText() {
+    try {
+      if (window.AndroidBridge) return String(window.AndroidBridge.getStoragePath() || 'App 內部儲存空間');
+    } catch (error) {
+      // Browser fallback is shown below.
+    }
+    return 'IndexedDB：renji-notebook-db／app-state／current';
   }
 
   function topBarHtml() {
@@ -196,10 +218,10 @@
 
   function summaryHtml() {
     const summary = Logic.dashboardSummary(state);
-    return `<section class="summary-grid" aria-label="借貸摘要">
+    return `<section class="summary-grid" aria-label="人物品質摘要">
       <div class="summary-item"><span class="summary-label">人物</span><strong class="summary-value">${summary.people}</strong></div>
-      <div class="summary-item"><span class="summary-label">他欠我</span><strong class="summary-value positive">$${money(summary.owedToMe)}</strong></div>
-      <div class="summary-item"><span class="summary-label">我欠他</span><strong class="summary-value negative">$${money(summary.iOwe)}</strong></div>
+      <div class="summary-item"><span class="summary-label">優質</span><strong class="summary-value positive">${summary.qualityCount}</strong><small class="summary-hint">90 分以上</small></div>
+      <div class="summary-item"><span class="summary-label">劣質</span><strong class="summary-value negative">${summary.poorCount}</strong><small class="summary-hint">40 分以下</small></div>
     </section>`;
   }
 
@@ -229,8 +251,17 @@
       </div>`;
   }
 
+  function quickTagFiltersHtml() {
+    const tags = state.settings.quickTags || [];
+    return `<div class="quick-tag-head"><span>常用標籤</span><button class="text-link" data-action="edit-quick-tags">設定</button></div>
+      <div class="chip-row quick-tags">${tags.map((tag) => {
+        const filter = `tag:${tag}`;
+        return `<button class="chip ${filters.people.filter === filter ? 'active' : ''}" data-action="people-filter" data-filter="${attribute(filter)}">${escapeHtml(tag)}</button>`;
+      }).join('') || '<span class="small-muted">尚未設定首頁常用標籤</span>'}</div>`;
+  }
+
   function renderPeopleView() {
-    return `${summaryHtml()}${searchHtml('people', '搜尋姓名、事件、標籤、借貸')}${peopleFiltersHtml()}<div id="people-list">${renderPeopleListHtml()}</div>`;
+    return `${summaryHtml()}${searchHtml('people', '搜尋姓名、事件、標籤、借貸')}${quickTagFiltersHtml()}${peopleFiltersHtml()}<div id="people-list">${renderPeopleListHtml()}</div>`;
   }
 
   function renderPeopleListHtml() {
@@ -270,7 +301,7 @@
     const tags = Array.from(new Set([person.relation, ...(person.tags || []), debt.activeCount ? '借貸中' : ''].filter(Boolean))).slice(0, 4);
     return `<article class="person-card">
       <div class="person-head">
-        <div class="avatar" aria-hidden="true">${initials(person)}</div>
+        ${avatarHtml(person)}
         <div>
           <h3 class="person-name">${escapeHtml(person.name || '未命名')}</h3>
           ${person.nickname ? `<div class="person-alias">暱稱：${escapeHtml(person.nickname)}</div>` : ''}
@@ -281,7 +312,7 @@
       <div class="key-lines">
         ${debtKeyLine(person)}
         <div class="key-line"><span class="key-icon">◇</span><button class="text-link" data-action="show-score" data-person-id="${attribute(person.id)}">${selectedCategory ? `所選分類：${escapeHtml(selectedCategory.name)} ${selectedCategory.score}｜總分 ${score}` : `主要風險：${low.map((item) => `${escapeHtml(item.name)} ${item.score}`).join('｜') || '尚無分類'}`}</button></div>
-        ${recent ? `<div class="key-line"><span class="key-icon">▤</span><button class="event-link" data-action="show-event" data-event-id="${attribute(recent.id)}">最近事件：${escapeHtml(recent.title)} <span class="${recent.delta >= 0 ? 'delta-positive' : 'delta-negative'}">${signed(recent.delta)}</span></button></div>` : ''}
+        ${recent ? `<div class="key-line ${recent.important ? 'important-event-line' : ''}"><span class="key-icon">${recent.important ? '★' : '▤'}</span><button class="event-link" data-action="show-event" data-event-id="${attribute(recent.id)}">最近事件：${escapeHtml(recent.title)} <span class="${recent.delta >= 0 ? 'delta-positive' : 'delta-negative'}">${signed(recent.delta)}</span></button></div>` : ''}
       </div>
       <div class="card-actions">
         <button class="action-button" data-action="add-event" data-person-id="${attribute(person.id)}">記事件</button>
@@ -343,18 +374,24 @@
     const original = loan.kind === 'item' ? Number(loan.quantity) || 0 : Number(loan.amount) || 0;
     const completed = original > 0 ? Math.min(100, Math.round(((original - remaining) / original) * 100)) : 0;
     const overdueDays = Logic.overdueDays(loan);
-    return `<article class="loan-card" role="button" data-action="show-loan" data-loan-id="${attribute(loan.id)}">
-      <div class="loan-head">
-        <div><h3>${escapeHtml(loan.title || (loan.kind === 'money' ? '金錢借貸' : '物品借貸'))}</h3><div class="loan-person">${escapeHtml(person.name)}｜${directionLabel(loan)}</div></div>
-        <span class="loan-status ${status === 'overdue' ? 'overdue' : ''}">${statusLabel(status)}${overdueDays ? ` ${overdueDays}天` : ''}</span>
+    const canTransact = !['settled', 'waived'].includes(status);
+    return `<article class="loan-card">
+      <div class="loan-card-open" role="button" tabindex="0" data-action="show-loan" data-loan-id="${attribute(loan.id)}">
+        <div class="loan-head">
+          <div><h3>${escapeHtml(loan.title || (loan.kind === 'money' ? '金錢借貸' : '物品借貸'))}</h3><div class="loan-person">${escapeHtml(person.name)}｜${directionLabel(loan)}</div></div>
+          <span class="loan-status ${status === 'overdue' ? 'overdue' : ''}">${statusLabel(status)}${overdueDays ? ` ${overdueDays}天` : ''}</span>
+        </div>
+        <div class="loan-amount ${loan.direction === 'owedToMe' ? 'amount-owed' : loan.direction === 'iOwe' ? 'amount-i-owe' : ''}">${loan.kind === 'money' ? `$${money(remaining)}` : `${money(remaining)} 件`}</div>
+        <div class="small-muted">原始${loan.kind === 'money' ? '金額' : '數量'}：${loan.kind === 'money' ? `$${money(original)}` : `${money(original)} 件`}｜到期：${dateText(loan.dueAt, false)}</div>
+        <div class="loan-progress"><span style="width:${completed}%"></span></div>
+        ${loan.note ? `<div class="small-muted">${escapeHtml(loan.note)}</div>` : ''}
       </div>
-      <div class="loan-amount ${loan.direction === 'owedToMe' ? 'amount-owed' : loan.direction === 'iOwe' ? 'amount-i-owe' : ''}">${loan.kind === 'money' ? `$${money(remaining)}` : `${money(remaining)} 件`}</div>
-      <div class="small-muted">原始${loan.kind === 'money' ? '金額' : '數量'}：${loan.kind === 'money' ? `$${money(original)}` : `${money(original)} 件`}｜到期：${dateText(loan.dueAt, false)}</div>
-      <div class="loan-progress"><span style="width:${completed}%"></span></div>
-      ${loan.note ? `<div class="small-muted">${escapeHtml(loan.note)}</div>` : ''}
+      <div class="loan-card-actions">
+        <button class="action-button" data-action="show-loan" data-loan-id="${attribute(loan.id)}">查看明細</button>
+        ${canTransact ? `<button class="action-button repay-button" data-action="add-transaction" data-loan-id="${attribute(loan.id)}">${loan.kind === 'item' ? '歸還' : '還款'}</button>` : '<button class="action-button" disabled>已完成</button>'}
+      </div>
     </article>`;
   }
-
   function renderEventsView() {
     const plus = state.events.filter((event) => Number(event.delta) > 0).length;
     const minus = state.events.filter((event) => Number(event.delta) < 0).length;
@@ -395,7 +432,7 @@
   function eventCardHtml(event) {
     const person = personById(event.personId) || { name: '已刪除人物' };
     const delta = Number(event.delta) || 0;
-    return `<article class="event-card" role="button" data-action="show-event" data-event-id="${attribute(event.id)}">
+    return `<article class="event-card ${event.important ? 'important-event' : ''}" role="button" data-action="show-event" data-event-id="${attribute(event.id)}">
       <div class="event-head">
         <div><h3>${escapeHtml(event.title || '未命名事件')}</h3><div class="event-person">${escapeHtml(person.name)}｜${dateText(event.occurredAt || event.createdAt, true)}</div></div>
         <div class="event-score ${delta >= 0 ? 'delta-positive' : 'delta-negative'}">${signed(delta)}</div>
@@ -403,7 +440,7 @@
       ${event.detail ? `<p class="event-detail">${escapeHtml(event.detail.length > 120 ? `${event.detail.slice(0, 120)}…` : event.detail)}</p>` : ''}
       <div class="event-flags">
         ${(event.categoryIds || []).map((id) => tagHtml(categoryName(id), 'gold')).join('')}
-        ${event.important ? tagHtml('重要事件', 'danger') : ''}
+        ${event.important ? tagHtml('★ 重要事件', 'important') : ''}
         ${event.followUp ? tagHtml('待追蹤', '') : ''}
       </div>
     </article>`;
@@ -430,8 +467,10 @@
       </section>
 
       <section class="settings-card">
-        <div class="settings-line"><strong>常用標籤</strong><button class="button secondary" data-action="add-tag">新增標籤</button></div>
-        <div class="tag-list">${state.settings.tags.map((tag) => `<button class="tag" data-action="remove-tag" data-tag="${attribute(tag)}" title="點擊移除">${escapeHtml(tag)} ×</button>`).join('') || '<span class="small-muted">尚無常用標籤</span>'}</div>
+        <div class="settings-line"><strong>人物標籤</strong><button class="button secondary" data-action="add-tag">新增標籤</button></div>
+        <p>管理人物可使用的全部標籤；首頁搜尋列下方只顯示你指定的常用標籤。</p>
+        <div class="tag-list">${state.settings.tags.map((tag) => `<button class="tag" data-action="remove-tag" data-tag="${attribute(tag)}" title="點擊移除">${escapeHtml(tag)} ×</button>`).join('') || '<span class="small-muted">尚無人物標籤</span>'}</div>
+        <button class="button primary full" style="margin-top:12px" data-action="edit-quick-tags">更換首頁常用標籤</button>
       </section>
 
       <section class="settings-card">
@@ -460,7 +499,8 @@
         <h3>系統狀態</h3>
         <div class="settings-line"><strong>App 版本</strong><span class="settings-value">v${APP_VERSION}</span></div>
         <div class="settings-line"><strong>資料儲存</strong><span class="settings-value">${escapeHtml(storageModeText())}</span></div>
-        <p>按下儲存後會直接執行，不依賴 WebView 的表單送出機制。</p>
+        <div class="storage-path-block"><strong>儲存路徑</strong><code>${escapeHtml(storagePathText())}</code></div>
+        <p>這是 App 自動儲存的內部資料路徑；匯出備份時，檔案位置由 Android 儲存視窗中所選的資料夾決定。</p>
       </section>
 
       <section class="settings-card danger-zone">
@@ -502,22 +542,34 @@
       .join('');
   }
 
+  function zodiacOptions(selected) {
+    return `<option value="">未設定</option>${Logic.ZODIAC_SIGNS.map((sign) => `<option value="${attribute(sign)}" ${selected === sign ? 'selected' : ''}>${escapeHtml(sign)}</option>`).join('')}`;
+  }
+
+  function bloodTypeOptions(selected) {
+    return ['A', 'B', 'O', 'AB'].map((type) => `<option value="${type}" ${selected === type ? 'selected' : ''}>${type} 型</option>`).join('');
+  }
+
   function personFormHtml(person) {
     const editing = Boolean(person);
     const item = person || {
       id: '', name: '', nickname: '', phone: '', otherContact: '', relation: '',
-      knownAt: localDateValue(null, false), tags: [], notes: '', startScore: state.settings.defaultStartScore
+      birthday: '', zodiac: '', bloodType: '', avatar: null, tags: [], notes: '', startScore: state.settings.defaultStartScore
     };
     const selectedTags = new Set(item.tags || []);
     const customTags = (item.tags || []).filter((tag) => !state.settings.tags.includes(tag));
     return `${sheetHead(editing ? '修改人物' : '新增人物', '先記重要資料，其餘日後補充即可。')}
       <form id="person-form" class="form-stack">
         <input type="hidden" name="recordId" value="${attribute(item.id)}">
+        <label class="field avatar-upload-field"><span>大頭照</span><input name="avatar" type="file" accept="image/*" data-role="avatar-input"><small>選擇一張照片，儲存後會顯示在人物卡。</small><strong class="attachment-status" data-avatar-status aria-live="polite"></strong></label>
+        ${item.avatar && item.avatar.dataUrl ? `<div class="avatar-form-preview"><img src="${attribute(item.avatar.dataUrl)}" alt="目前大頭照"><label class="remove-avatar"><input type="checkbox" name="removeAvatar"><span>移除目前大頭照</span></label></div>` : ''}
         <div class="form-grid">
           <label class="field"><span>姓名 *</span><input name="name" required maxlength="60" value="${attribute(item.name)}" autofocus></label>
           <label class="field"><span>暱稱</span><input name="nickname" maxlength="60" value="${attribute(item.nickname)}"></label>
           <label class="field"><span>關係</span><input name="relation" maxlength="40" placeholder="同事、朋友、客戶…" value="${attribute(item.relation)}"></label>
-          <label class="field"><span>認識日期</span><input name="knownAt" type="date" value="${attribute(item.knownAt)}"></label>
+          <label class="field"><span>生日</span><input name="birthday" type="date" data-role="birthday" value="${attribute(item.birthday || '')}"></label>
+          <label class="field"><span>星座</span><select name="zodiac" data-role="zodiac">${zodiacOptions(item.zodiac || Logic.zodiacFromBirthday(item.birthday))}</select></label>
+          <label class="field"><span>血型</span><select name="bloodType"><option value="">未設定</option>${bloodTypeOptions(item.bloodType || '')}</select></label>
           <label class="field"><span>電話</span><input name="phone" type="tel" maxlength="50" value="${attribute(item.phone)}"></label>
           <label class="field"><span>其他聯絡</span><input name="otherContact" maxlength="120" placeholder="LINE、Email、地址…" value="${attribute(item.otherContact)}"></label>
           <label class="field"><span>起始分數</span><input name="startScore" type="number" min="0" max="100" required value="${attribute(item.startScore)}"><small>建立後仍可修改，但不會改動事件紀錄。</small></label>
@@ -539,22 +591,24 @@
     const low = Logic.lowestCategories(state, person, 2);
     low.filter((category) => category.score <= 60).forEach((category) => warnings.push(`${category.name}僅 ${category.score} 分`));
     return `${sheetHead(person.name || '人物資料', person.nickname ? `暱稱：${person.nickname}` : band.label)}
-      <div class="score-overview">${scoreBadgeHtml(score, person.id, true)}<div><strong style="font-size:19px">${escapeHtml(band.label)}</strong><div class="small-muted">起始 ${person.startScore} 分｜事件 ${Logic.personEvents(state, person.id).length} 筆</div></div></div>
+      <div class="profile-overview">${avatarHtml(person, 'avatar-detail')}<div class="score-overview">${scoreBadgeHtml(score, person.id, true)}<div><strong style="font-size:19px">${escapeHtml(band.label)}</strong><div class="small-muted">起始 ${person.startScore} 分｜事件 ${Logic.personEvents(state, person.id).length} 筆</div></div></div></div>
       ${warnings.length ? `<div class="notice danger">${warnings.map(escapeHtml).join('｜')}</div>` : '<div class="notice">目前沒有逾期或 60 分以下的重大警示。</div>'}
       <div class="section-head"><h3 class="section-title">重要資料</h3></div>
       <div class="detail-list">
         <div class="detail-row"><span>關係</span><span>${escapeHtml(person.relation || '未設定')}</span></div>
         <div class="detail-row"><span>電話</span><span>${person.phone ? `<a href="tel:${attribute(person.phone)}">${escapeHtml(person.phone)}</a>` : '未設定'}</span></div>
         <div class="detail-row"><span>其他聯絡</span><span>${escapeHtml(person.otherContact || '未設定')}</span></div>
-        <div class="detail-row"><span>認識日期</span><span>${dateText(person.knownAt, false)}</span></div>
+        <div class="detail-row"><span>生日</span><span>${dateText(person.birthday, false)}</span></div>
+        <div class="detail-row"><span>星座</span><span>${escapeHtml(person.zodiac || Logic.zodiacFromBirthday(person.birthday) || '未設定')}</span></div>
+        <div class="detail-row"><span>血型</span><span>${person.bloodType ? `${escapeHtml(person.bloodType)} 型` : '未設定'}</span></div>
         <div class="detail-row"><span>他欠我</span><span class="amount-owed">$${money(debt.owedToMe)}</span></div>
         <div class="detail-row"><span>我欠他</span><span class="amount-i-owe">$${money(debt.iOwe)}</span></div>
       </div>
       ${person.tags && person.tags.length ? `<div class="tag-list">${person.tags.map((tag) => tagHtml(tag)).join('')}</div>` : ''}
       ${person.notes ? `<div class="detail-card"><h3>備註</h3><p class="event-detail">${escapeHtml(person.notes)}</p></div>` : ''}
       <div class="section-head"><h3 class="section-title">最近事件</h3><button class="text-link" data-action="add-event" data-person-id="${attribute(person.id)}">＋ 新增</button></div>
-      ${events.length ? `<div class="timeline">${events.map((event) => `<button class="timeline-item ${event.delta >= 0 ? 'positive' : 'negative'} text-link" data-action="show-event" data-event-id="${attribute(event.id)}"><h4>${escapeHtml(event.title)} <span class="${event.delta >= 0 ? 'delta-positive' : 'delta-negative'}">${signed(event.delta)}</span></h4><span class="small-muted">${dateText(event.occurredAt || event.createdAt, true)}</span></button>`).join('')}</div>` : '<div class="small-muted">尚無事件紀錄</div>'}
-      <div class="card-actions" style="margin-top:18px"><button class="action-button" data-action="edit-person" data-person-id="${attribute(person.id)}">修改</button><button class="action-button" data-action="add-loan" data-person-id="${attribute(person.id)}">借貸</button><button class="action-button" data-action="show-person-loans" data-person-id="${attribute(person.id)}">往來明細</button></div>
+      ${events.length ? `<div class="timeline">${events.map((event) => `<button class="timeline-item ${event.delta >= 0 ? 'positive' : 'negative'} ${event.important ? 'important-event' : ''} text-link" data-action="show-event" data-event-id="${attribute(event.id)}"><h4>${event.important ? '<span class="important-star">★</span> ' : ''}${escapeHtml(event.title)} <span class="${event.delta >= 0 ? 'delta-positive' : 'delta-negative'}">${signed(event.delta)}</span></h4><span class="small-muted">${dateText(event.occurredAt || event.createdAt, true)}</span></button>`).join('')}</div>` : '<div class="small-muted">尚無事件紀錄</div>'}
+      <div class="card-actions" style="margin-top:18px"><button class="action-button" data-action="edit-person" data-person-id="${attribute(person.id)}">修改</button><button class="action-button" data-action="add-loan" data-person-id="${attribute(person.id)}">借貸</button><button class="action-button" data-action="show-person-events" data-person-id="${attribute(person.id)}" data-event-polarity="positive">往來明細</button></div>
       <button class="button danger full" style="margin-top:10px" data-action="delete-person" data-person-id="${attribute(person.id)}">刪除此人物</button>`;
   }
 
@@ -603,7 +657,7 @@
     const person = personById(event.personId) || { name: '已刪除人物' };
     return `${sheetHead(event.title || '事件內容', `${person.name}｜${dateText(event.occurredAt || event.createdAt, true)}`)}
       <div class="score-overview"><div class="score-badge ${event.delta >= 0 ? 'band-green' : 'band-red'}">${signed(event.delta)}</div><div><strong>${event.delta >= 0 ? '加分事件' : '扣分事件'}</strong><div class="small-muted">影響人物總分${event.categoryIds && event.categoryIds.length ? '及所選分類' : ''}</div></div></div>
-      <div class="tag-list">${(event.categoryIds || []).map((id) => tagHtml(categoryName(id), 'gold')).join('')}${event.important ? tagHtml('重要事件', 'danger') : ''}${event.followUp ? tagHtml('待追蹤') : ''}</div>
+      <div class="tag-list">${(event.categoryIds || []).map((id) => tagHtml(categoryName(id), 'gold')).join('')}${event.important ? tagHtml('★ 重要事件', 'important') : ''}${event.followUp ? tagHtml('待追蹤') : ''}</div>
       <div class="detail-card"><h3>事件經過</h3><p class="event-detail">${escapeHtml(event.detail || '未填寫詳細內容')}</p>${attachmentHtml(event.attachments)}</div>
       <div class="card-actions" style="grid-template-columns:1fr 1fr;margin-top:15px"><button class="action-button" data-action="edit-event" data-event-id="${attribute(event.id)}">修改事件</button><button class="action-button" data-action="delete-event" data-event-id="${attribute(event.id)}">刪除事件</button></div>`;
   }
@@ -703,6 +757,20 @@
       <button class="button primary full" style="margin-top:14px" data-action="add-loan" data-person-id="${attribute(person.id)}">新增借貸</button>`;
   }
 
+  function personEventsHtml(person, selectedPolarity) {
+    const polarity = selectedPolarity === 'negative' ? 'negative' : 'positive';
+    const allEvents = Logic.personEvents(state, person.id);
+    const positiveEvents = allEvents.filter((event) => Number(event.delta) >= 0);
+    const negativeEvents = allEvents.filter((event) => Number(event.delta) < 0);
+    const events = polarity === 'negative' ? negativeEvents : positiveEvents;
+    return `${sheetHead(`${person.name}｜往來明細`, '此人的全部事件依加分與扣分分頁顯示。')}
+      <div class="subtabs two-tabs">
+        <button class="subtab ${polarity === 'positive' ? 'active' : ''}" data-action="show-person-events" data-person-id="${attribute(person.id)}" data-event-polarity="positive">加分 ${positiveEvents.length}</button>
+        <button class="subtab ${polarity === 'negative' ? 'active' : ''}" data-action="show-person-events" data-person-id="${attribute(person.id)}" data-event-polarity="negative">扣分 ${negativeEvents.length}</button>
+      </div>
+      ${events.length ? `<div class="list-stack person-event-list">${events.map(eventCardHtml).join('')}</div>` : `<div class="empty-state"><span class="empty-icon">▤</span><h2>尚無${polarity === 'positive' ? '加分' : '扣分'}事件</h2><p>新增事件後會依分數方向自動歸入此頁。</p></div>`}
+      <button class="button primary full" style="margin-top:14px" data-action="add-event" data-person-id="${attribute(person.id)}">新增事件</button>`;
+  }
   function transactionFormHtml(loan) {
     const person = personById(loan.personId) || { name: '已刪除人物' };
     const remaining = Logic.loanRemaining(loan);
@@ -732,7 +800,12 @@
   }
 
   function tagFormHtml() {
-    return `${sheetHead('新增常用標籤', '常用標籤會出現在人物建立與修改畫面。')}<form id="tag-form" class="form-stack"><label class="field"><span>標籤名稱 *</span><input name="name" required maxlength="30" placeholder="例如：高情緒成本" autofocus></label><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">新增標籤</button></div></form>`;
+    return `${sheetHead('新增人物標籤', '新增後可套用到人物，也能設為首頁搜尋常用標籤。')}<form id="tag-form" class="form-stack"><label class="field"><span>標籤名稱 *</span><input name="name" required maxlength="30" placeholder="例如：高情緒成本" autofocus></label><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">新增標籤</button></div></form>`;
+  }
+
+  function quickTagsFormHtml() {
+    const selected = new Set(state.settings.quickTags || []);
+    return `${sheetHead('更換首頁常用標籤', '選擇要放在人物搜尋列下方的標籤，最多 6 個。')}<form id="quick-tags-form" class="form-stack"><div class="field"><span>首頁常用標籤</span><div class="check-list">${state.settings.tags.map((tag) => `<label class="check-chip"><input type="checkbox" name="quickTags" value="${attribute(tag)}" ${selected.has(tag) ? 'checked' : ''}><span>${escapeHtml(tag)}</span></label>`).join('') || '<span class="small-muted">請先新增人物標籤</span>'}</div><small>可隨時更換，不會刪除人物身上的既有標籤。</small></div><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存常用標籤</button></div></form>`;
   }
 
   function pinFormHtml() {
@@ -841,6 +914,11 @@
       if (person) openSheet(personDetailHtml(person));
       return;
     }
+    if (action === 'view-avatar') {
+      const person = personById(personId);
+      if (person && person.avatar && person.avatar.dataUrl) openSheet(avatarViewerHtml(person));
+      return;
+    }
     if (action === 'show-score') {
       const person = personById(personId);
       if (person) openSheet(scoreDetailHtml(person));
@@ -873,6 +951,11 @@
       if (person) openSheet(personLoansHtml(person));
       return;
     }
+    if (action === 'show-person-events') {
+      const person = personById(personId);
+      if (person) openSheet(personEventsHtml(person, element.dataset.eventPolarity));
+      return;
+    }
     if (action === 'add-transaction') {
       const item = loanById(loanId);
       if (item) openSheet(transactionFormHtml(item));
@@ -900,6 +983,7 @@
       return;
     }
     if (action === 'add-tag') return openSheet(tagFormHtml());
+    if (action === 'edit-quick-tags') return openSheet(quickTagsFormHtml());
     if (action === 'set-pin') return openSheet(pinFormHtml());
     if (action === 'lock-now') {
       unlocked = false;
@@ -921,8 +1005,11 @@
       return;
     }
     if (action === 'remove-tag') {
-      state.settings.tags = state.settings.tags.filter((tag) => tag !== element.dataset.tag);
-      return persist('已從常用標籤移除', false);
+      const removedTag = element.dataset.tag;
+      state.settings.tags = state.settings.tags.filter((tag) => tag !== removedTag);
+      state.settings.quickTags = (state.settings.quickTags || []).filter((tag) => tag !== removedTag);
+      if (filters.people.filter === `tag:${removedTag}`) filters.people.filter = 'all';
+      return persist('已從人物標籤移除', false);
     }
     if (action === 'delete-person') {
       const person = personById(personId);
@@ -1045,10 +1132,21 @@
       updateLoanFormKind();
       return;
     }
+    if (target.matches('[data-role="avatar-input"]')) {
+      const status = target.closest('.field') && target.closest('.field').querySelector('[data-avatar-status]');
+      if (status) status.textContent = target.files && target.files.length ? `已選擇：${target.files[0].name || '大頭照'}` : '';
+      return;
+    }
+    if (target.matches('[data-role="birthday"]')) {
+      const form = target.closest('form');
+      const zodiac = form && form.querySelector('[data-role="zodiac"]');
+      if (zodiac) zodiac.value = Logic.zodiacFromBirthday(target.value);
+      return;
+    }
     if (target.matches('[data-role="attachment-input"]')) {
       const count = Math.min(3, target.files ? target.files.length : 0);
       const status = target.closest('.field') && target.closest('.field').querySelector('[data-attachment-status]');
-      if (status) status.textContent = count ? `已選擇 ${count} 張照片，儲存時會加入事件` : '';
+      if (status) status.textContent = count ? `已選擇 ${count} 張照片，儲存時會加入紀錄` : '';
       return;
     }
     if (target.id === 'backup-file') {
@@ -1117,6 +1215,7 @@
       if (formId === 'transaction-form') await submitTransaction(form);
       if (formId === 'category-form') await submitCategory(form);
       if (formId === 'tag-form') await submitTag(form);
+      if (formId === 'quick-tags-form') await submitQuickTags(form);
       if (formId === 'pin-form') await submitPin(form);
       if (formId === 'unlock-form') await submitUnlock(form);
     } catch (error) {
@@ -1146,6 +1245,8 @@
     const chosenTags = data.getAll('tags').map(String);
     const customTags = splitTags(data.get('customTags'));
     const tags = Array.from(new Set([...chosenTags, ...customTags]));
+    const avatarInput = form.elements.avatar;
+    const avatarImages = await imageAttachments(avatarInput && avatarInput.files);
     const stamp = new Date().toISOString();
     const person = Object.assign(existing || {}, {
       id: existing ? existing.id : Logic.uid('person'),
@@ -1154,7 +1255,10 @@
       phone: String(data.get('phone') || '').trim(),
       otherContact: String(data.get('otherContact') || '').trim(),
       relation: String(data.get('relation') || '').trim(),
-      knownAt: String(data.get('knownAt') || ''),
+      birthday: String(data.get('birthday') || ''),
+      zodiac: String(data.get('zodiac') || Logic.zodiacFromBirthday(data.get('birthday')) || ''),
+      bloodType: String(data.get('bloodType') || ''),
+      avatar: avatarImages[0] || (data.has('removeAvatar') ? null : existing && existing.avatar ? existing.avatar : null),
       tags,
       notes: String(data.get('notes') || '').trim(),
       startScore: Logic.clampScore(data.get('startScore')),
@@ -1263,6 +1367,7 @@
     };
     if (loan.kind === 'item') transaction.quantity = value;
     else transaction.amount = value;
+    if (!Array.isArray(loan.transactions)) loan.transactions = [];
     loan.transactions.push(transaction);
     loan.updatedAt = stamp;
 
@@ -1313,7 +1418,18 @@
     const name = String(data.get('name') || '').trim();
     if (!name) throw new Error('請輸入標籤名稱');
     if (!state.settings.tags.includes(name)) state.settings.tags.push(name);
-    await persist('常用標籤已新增');
+    await persist('人物標籤已新增');
+  }
+
+  async function submitQuickTags(form) {
+    const data = new FormData(form);
+    const selected = Array.from(new Set(data.getAll('quickTags').map(String)));
+    if (selected.length > 6) throw new Error('首頁常用標籤最多選擇 6 個');
+    state.settings.quickTags = selected.filter((tag) => state.settings.tags.includes(tag));
+    if (String(filters.people.filter).startsWith('tag:') && !state.settings.quickTags.includes(String(filters.people.filter).slice(4))) {
+      filters.people.filter = 'all';
+    }
+    await persist('首頁常用標籤已更新');
   }
 
   function hashPin(pin) {
@@ -1393,9 +1509,13 @@
   }
 
   function saveTextFile(fileName, mimeType, content) {
-    if (window.AndroidBridge && typeof window.AndroidBridge.saveTextFile === 'function') {
-      window.AndroidBridge.saveTextFile(fileName, mimeType, content);
-      return;
+    try {
+      if (window.AndroidBridge) {
+        window.AndroidBridge.saveTextFile(fileName, mimeType, content);
+        return;
+      }
+    } catch (error) {
+      console.warn('Android 儲存視窗無法開啟，改用瀏覽器下載', error);
     }
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);

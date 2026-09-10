@@ -238,6 +238,11 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String getStoragePath() {
+            return stateFile().getBaseFile().getAbsolutePath();
+        }
+
+        @JavascriptInterface
         public synchronized String loadState() {
             AtomicFile file = stateFile();
             try (FileInputStream input = file.openRead();

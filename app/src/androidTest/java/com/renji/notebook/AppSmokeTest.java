@@ -84,7 +84,7 @@ public class AppSmokeTest {
 
         runJs("document.querySelector('[data-action=\"add-person\"]').click()");
         waitUntil("document.getElementById('person-form') !== null");
-        runJs("var f=document.getElementById('person-form');f.elements.name.value='測試人物'");
+        runJs("var f=document.getElementById('person-form');f.elements.name.value='測試人物';f.elements.birthday.value='1987-01-15';f.elements.bloodType.value='O'");
         assertEquals("true", evaluate("document.getElementById('person-form').checkValidity()"));
         runJs("document.querySelector('#person-form [data-action=\"save-form\"]').click()");
         waitUntil("document.body.innerText.indexOf('測試人物') >= 0 && !document.getElementById('sheet').open");
@@ -96,8 +96,23 @@ public class AppSmokeTest {
         runJs("var f=document.getElementById('person-form');f.elements.nickname.value='已修改';f.querySelector('[data-action=\"save-form\"]').click()");
         waitUntil("!document.getElementById('sheet').open");
 
+        runJs("document.querySelector('[data-action=\"nav\"][data-view=\"loans\"]').click()");
+        waitUntil("document.querySelector('[data-action=\"primary-add\"]') !== null");
+        runJs("document.querySelector('[data-action=\"primary-add\"]').click()");
+        waitUntil("document.getElementById('loan-form') !== null");
+        runJs("var f=document.getElementById('loan-form');f.elements.title.value='測試借款';f.elements.amount.value='100';f.querySelector('[data-action=\"save-form\"]').click()");
+        waitUntil("document.body.innerText.indexOf('測試借款') >= 0 && !document.getElementById('sheet').open");
+        waitUntil("document.querySelector('.loan-card [data-action=\"add-transaction\"]') !== null");
+        runJs("document.querySelector('.loan-card [data-action=\"add-transaction\"]').click()");
+        waitUntil("document.getElementById('transaction-form') !== null");
+        runJs("var f=document.getElementById('transaction-form');f.elements.value.value='40';f.querySelector('[data-action=\"save-form\"]').click()");
+        waitUntil("!document.getElementById('sheet').open");
+        waitUntil("window.RenjiLogic.loanRemaining(JSON.parse(window.AndroidBridge.loadState()).loans.find(function(x){return x.title==='測試借款';})) === 60");
+
         runJs("document.querySelector('[data-action=\"nav\"][data-view=\"settings\"]').click()");
         waitUntil("document.querySelector('[data-action=\"add-category\"]') !== null");
+        assertEquals("true", evaluate("String(window.AndroidBridge.getStoragePath()).endsWith('renji-notebook-state.json')"));
+        assertTrue("Quick-tag settings button missing", "true".equals(evaluate("Boolean(document.querySelector('[data-action=\\\"edit-quick-tags\\\"]'))")));
         runJs("document.querySelector('[data-action=\"add-category\"]').click()");
         waitUntil("document.getElementById('category-form') !== null");
         runJs("var f=document.getElementById('category-form');f.elements.name.value='測試分類';f.querySelector('[data-action=\"save-form\"]').click()");
@@ -112,8 +127,9 @@ public class AppSmokeTest {
         waitUntil("document.querySelector('[data-action=\"primary-add\"]') !== null");
         runJs("document.querySelector('[data-action=\"primary-add\"]').click()");
         waitUntil("document.getElementById('event-form') !== null");
-        runJs("var f=document.getElementById('event-form');f.elements.title.value='主動守約';f.elements.deltaAmount.value='7';f.querySelector('[data-action=\"set-score-sign\"][data-sign=\"1\"]').click();f.querySelector('[data-action=\"save-form\"]').click()");
+        runJs("var f=document.getElementById('event-form');f.elements.title.value='主動守約';f.elements.deltaAmount.value='7';f.elements.important.checked=true;f.querySelector('[data-action=\"set-score-sign\"][data-sign=\"1\"]').click();f.querySelector('[data-action=\"save-form\"]').click()");
         waitUntil("document.body.innerText.indexOf('主動守約') >= 0 && !document.getElementById('sheet').open");
+        waitUntil("Boolean(Array.from(document.querySelectorAll('.event-card.important-event')).find(function(x){return x.innerText.indexOf('主動守約')>=0;}))");
 
         runJs("var e=Array.from(document.querySelectorAll('.event-card')).find(function(x){return x.innerText.indexOf('主動守約')>=0;});e.click()");
         waitUntil("document.querySelector('[data-action=\"delete-event\"]') !== null");

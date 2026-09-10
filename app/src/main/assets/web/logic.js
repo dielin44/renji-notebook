@@ -21,9 +21,11 @@
     { key: 'purple', min: 95, max: 100, label: '高度信任', color: '#a776ff' }
   ];
 
+  const ZODIAC_SIGNS = ['牡羊座', '金牛座', '雙子座', '巨蟹座', '獅子座', '處女座', '天秤座', '天蠍座', '射手座', '摩羯座', '水瓶座', '雙魚座'];
+
   const MANAGED_FORM_IDS = [
     'person-form', 'event-form', 'loan-form', 'transaction-form',
-    'category-form', 'tag-form', 'pin-form', 'unlock-form'
+    'category-form', 'tag-form', 'quick-tags-form', 'pin-form', 'unlock-form'
   ];
 
   function nowIso() {
@@ -51,6 +53,28 @@
     return Math.round(clamp(value, 0, 100));
   }
 
+  function zodiacFromBirthday(value) {
+    const match = /^(?:\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+    if (!match) return '';
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    const probe = new Date(Date.UTC(2000, month - 1, day));
+    if (probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) return '';
+    const code = month * 100 + day;
+    if (code >= 1222 || code <= 119) return '摩羯座';
+    if (code <= 218) return '水瓶座';
+    if (code <= 320) return '雙魚座';
+    if (code <= 419) return '牡羊座';
+    if (code <= 520) return '金牛座';
+    if (code <= 621) return '雙子座';
+    if (code <= 722) return '巨蟹座';
+    if (code <= 822) return '獅子座';
+    if (code <= 922) return '處女座';
+    if (code <= 1023) return '天秤座';
+    if (code <= 1122) return '天蠍座';
+    return '射手座';
+  }
+
   function signedDelta(sign, amount) {
     const direction = Number(sign) < 0 ? -1 : 1;
     const points = Math.round(clamp(amount, 0, 100));
@@ -69,11 +93,12 @@
   function createDefaultState() {
     const stamp = nowIso();
     return {
-      version: 1,
+      version: 2,
       settings: {
         defaultStartScore: 80,
         categories: deepClone(DEFAULT_CATEGORIES),
         tags: ['同事', '朋友', '家人', '客戶', '需觀察', '可合作', '借貸中'],
+        quickTags: ['同事', '朋友', '家人', '客戶'],
         pinHash: '',
         autoLockMinutes: 5
       },
@@ -88,7 +113,7 @@
     const base = createDefaultState();
     if (!input || typeof input !== 'object') return base;
     const state = {
-      version: 1,
+      version: 2,
       settings: Object.assign({}, base.settings, input.settings || {}),
       people: Array.isArray(input.people) ? input.people : [],
       events: Array.isArray(input.events) ? input.events : [],
@@ -105,13 +130,21 @@
         }))
       : deepClone(DEFAULT_CATEGORIES);
     state.settings.tags = Array.from(new Set((state.settings.tags || []).map(String).filter(Boolean)));
+    state.settings.quickTags = Array.from(new Set((state.settings.quickTags || []).map(String).filter(Boolean)))
+      .filter((tag) => state.settings.tags.includes(tag))
+      .slice(0, 6);
     state.people = state.people.map((person) => Object.assign({
       id: uid('person'),
       name: '', nickname: '', phone: '', otherContact: '', relation: '',
-      knownAt: '', tags: [], notes: '', startScore: state.settings.defaultStartScore,
+      birthday: '', zodiac: '', bloodType: '', avatar: null,
+      tags: [], notes: '', startScore: state.settings.defaultStartScore,
       categoryStarts: {}, createdAt: nowIso(), updatedAt: nowIso()
     }, person, {
       tags: Array.isArray(person.tags) ? person.tags : [],
+      birthday: String(person.birthday || ''),
+      zodiac: String(person.zodiac || zodiacFromBirthday(person.birthday) || ''),
+      bloodType: String(person.bloodType || ''),
+      avatar: person.avatar && typeof person.avatar === 'object' && typeof person.avatar.dataUrl === 'string' ? person.avatar : null,
       categoryStarts: person.categoryStarts || {},
       startScore: clampScore(person.startScore == null ? state.settings.defaultStartScore : person.startScore)
     }));
@@ -249,6 +282,9 @@
   function dashboardSummary(state) {
     return state.people.reduce((summary, person) => {
       const debt = personDebtSummary(state, person.id);
+      const score = personScore(state, person);
+      if (score >= 90) summary.qualityCount += 1;
+      if (score <= 40) summary.poorCount += 1;
       summary.owedToMe += debt.owedToMe;
       summary.iOwe += debt.iOwe;
       summary.lentItems += debt.lentItems;
@@ -257,6 +293,8 @@
       return summary;
     }, {
       people: state.people.length,
+      qualityCount: 0,
+      poorCount: 0,
       owedToMe: 0,
       iOwe: 0,
       lentItems: 0,
@@ -275,7 +313,7 @@
     const categoryNames = categoryScores(state, person).map((category) => category.name);
     return normalizeSearch([
       person.name, person.nickname, person.phone, person.otherContact, person.relation,
-      person.notes, ...(person.tags || []), ...categoryNames,
+      person.birthday, person.zodiac, person.bloodType, person.notes, ...(person.tags || []), ...categoryNames,
       ...events.flatMap((event) => [event.title, event.detail]),
       ...loans.flatMap((loan) => [loan.title, loan.note, loan.itemCondition, loan.returnCondition])
     ].join(' '));
@@ -289,6 +327,10 @@
       const score = personScore(state, person);
       const debt = personDebtSummary(state, person.id);
       if (settings.filter === 'highRisk') return score <= 60;
+      if (String(settings.filter).startsWith('tag:')) {
+        const tag = String(settings.filter).slice(4);
+        return person.relation === tag || (person.tags || []).includes(tag);
+      }
       if (settings.filter === 'activeLoans') return debt.activeCount > 0;
       if (settings.filter === 'overdue') return debt.overdueCount > 0;
       return true;
@@ -310,13 +352,13 @@
     const state = createDefaultState();
     const p1 = {
       id: 'demo_wang', name: '王建國', nickname: '建國', phone: '0912-345-678',
-      otherContact: 'LINE：wang-demo', relation: '同事', knownAt: '2025-06-01',
+      otherContact: 'LINE：wang-demo', relation: '同事', birthday: '1988-01-15', zodiac: '摩羯座', bloodType: 'O', avatar: null,
       tags: ['同事', '需觀察', '借貸中'], notes: '展示用人物，可從設定刪除全部資料。',
       startScore: 80, categoryStarts: { credit: 57, responsibility: 60, ability: 86, relationship: 68, finance: 74 }, createdAt: '2026-08-01T10:00:00+08:00', updatedAt: '2026-09-09T10:00:00+08:00'
     };
     const p2 = {
       id: 'demo_lin', name: '林雅婷', nickname: '', phone: '', otherContact: '', relation: '朋友',
-      knownAt: '2024-02-10', tags: ['朋友', '可合作'], notes: '', startScore: 88,
+      birthday: '1992-06-18', zodiac: '雙子座', bloodType: 'A', avatar: null, tags: ['朋友', '可合作'], notes: '', startScore: 88,
       categoryStarts: {}, createdAt: '2026-08-01T10:00:00+08:00', updatedAt: '2026-09-05T10:00:00+08:00'
     };
     state.people.push(p1, p2);
@@ -340,6 +382,7 @@
   return {
     DEFAULT_CATEGORIES,
     SCORE_BANDS,
+    ZODIAC_SIGNS,
     activeLoans,
     categoryScore,
     categoryScores,
@@ -363,6 +406,7 @@
     signedDelta,
     searchablePersonText,
     transactionTotal,
-    uid
+    uid,
+    zodiacFromBirthday
   };
 });

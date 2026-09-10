@@ -83,3 +83,57 @@ test('示範資料呈現 58 分與 7000 元未還', () => {
   assert.equal(Logic.categoryScore(state, 'demo_wang', 'credit'), 35);
   assert.equal(Logic.personDebtSummary(state, 'demo_wang').owedToMe, 7000);
 });
+
+test('首頁優質與劣質人數使用 90 與 40 分邊界', () => {
+  const state = Logic.createDefaultState();
+  state.people.push(
+    { id: 'quality', name: '優質', startScore: 90, categoryStarts: {}, tags: [] },
+    { id: 'poor', name: '劣質', startScore: 40, categoryStarts: {}, tags: [] },
+    { id: 'middle-high', name: '中高', startScore: 89, categoryStarts: {}, tags: [] },
+    { id: 'middle-low', name: '中低', startScore: 41, categoryStarts: {}, tags: [] }
+  );
+  const summary = Logic.dashboardSummary(state);
+  assert.equal(summary.qualityCount, 1);
+  assert.equal(summary.poorCount, 1);
+});
+
+test('生日可換算星座且邊界正確', () => {
+  assert.equal(Logic.zodiacFromBirthday('1987-01-19'), '摩羯座');
+  assert.equal(Logic.zodiacFromBirthday('1987-01-20'), '水瓶座');
+  assert.equal(Logic.zodiacFromBirthday('1987-12-22'), '摩羯座');
+  assert.equal(Logic.zodiacFromBirthday('not-a-date'), '');
+});
+
+test('舊人物資料正規化後可保留並補入新欄位', () => {
+  const state = Logic.normalizeState({
+    settings: {
+      tags: ['同事', '朋友'],
+      quickTags: ['朋友', '不存在']
+    },
+    people: [{
+      id: 'p1', name: '測試', startScore: 80, tags: ['朋友'],
+      birthday: '1990-06-18', bloodType: 'AB',
+      avatar: { name: 'avatar.jpg', dataUrl: 'data:image/jpeg;base64,AA==' }
+    }],
+    events: [],
+    loans: []
+  });
+  assert.equal(state.version, 2);
+  assert.equal(state.people[0].zodiac, '雙子座');
+  assert.equal(state.people[0].bloodType, 'AB');
+  assert.equal(state.people[0].avatar.dataUrl, 'data:image/jpeg;base64,AA==');
+  assert.deepEqual(state.settings.quickTags, ['朋友']);
+});
+
+test('首頁常用標籤可直接篩選人物', () => {
+  const state = Logic.createDefaultState();
+  state.people.push(
+    { id: 'p1', name: '甲', relation: '同事', startScore: 80, categoryStarts: {}, tags: [] },
+    { id: 'p2', name: '乙', relation: '', startScore: 80, categoryStarts: {}, tags: ['朋友'] }
+  );
+  assert.deepEqual(
+    Logic.filterPeople(state, { filter: 'tag:朋友' }).map((person) => person.id),
+    ['p2']
+  );
+});
+
