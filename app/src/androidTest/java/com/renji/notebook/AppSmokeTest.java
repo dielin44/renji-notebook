@@ -8,6 +8,7 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.Intent;
 import android.net.Uri;
+import android.util.Log;
 
 import androidx.test.ext.junit.rules.ActivityScenarioRule;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -78,16 +79,23 @@ public class AppSmokeTest {
         throw new AssertionError("Condition timed out: " + condition + " diagnostics=" + diagnostics);
     }
 
+    private void mark(String step) {
+        Log.i("RenjiTest", step);
+    }
+
     @Test
     public void directButtonsCreateModifyAndDeleteData() throws Exception {
+        mark("START");
         waitUntil("document.querySelector('[data-action=\"add-person\"]') !== null");
 
         runJs("document.querySelector('[data-action=\"add-person\"]').click()");
         waitUntil("document.getElementById('person-form') !== null");
+        mark("PERSON_FORM_OPEN");
         runJs("var f=document.getElementById('person-form');f.elements.name.value='測試人物';f.elements.birthday.value='1987-01-15';f.elements.bloodType.value='O'");
         assertEquals("true", evaluate("document.getElementById('person-form').checkValidity()"));
         runJs("document.querySelector('#person-form [data-action=\"save-form\"]').click()");
         waitUntil("document.body.innerText.indexOf('測試人物') >= 0 && !document.getElementById('sheet').open");
+        mark("PERSON_SAVED");
 
         runJs("var c=Array.from(document.querySelectorAll('.person-card')).find(function(x){return x.innerText.indexOf('測試人物')>=0;});c.querySelector('[data-action=\"show-person\"]').click()");
         waitUntil("document.querySelector('[data-action=\"edit-person\"]') !== null");
@@ -95,22 +103,28 @@ public class AppSmokeTest {
         waitUntil("document.getElementById('person-form') !== null");
         runJs("var f=document.getElementById('person-form');f.elements.nickname.value='已修改';f.querySelector('[data-action=\"save-form\"]').click()");
         waitUntil("!document.getElementById('sheet').open");
+        mark("PERSON_EDITED");
 
         runJs("document.querySelector('[data-action=\"nav\"][data-view=\"loans\"]').click()");
         waitUntil("document.querySelector('[data-action=\"primary-add\"]') !== null");
         runJs("document.querySelector('[data-action=\"primary-add\"]').click()");
         waitUntil("document.getElementById('loan-form') !== null");
+        mark("LOAN_FORM_OPEN");
         runJs("var f=document.getElementById('loan-form');f.elements.title.value='測試借款';f.elements.amount.value='100';f.querySelector('[data-action=\"save-form\"]').click()");
         waitUntil("document.body.innerText.indexOf('測試借款') >= 0 && !document.getElementById('sheet').open");
+        mark("LOAN_SAVED");
         waitUntil("document.querySelector('.loan-card [data-action=\"add-transaction\"]') !== null");
         runJs("document.querySelector('.loan-card [data-action=\"add-transaction\"]').click()");
         waitUntil("document.getElementById('transaction-form') !== null");
+        mark("TRANSACTION_FORM_OPEN");
         runJs("var f=document.getElementById('transaction-form');f.elements.value.value='40';f.querySelector('[data-action=\"save-form\"]').click()");
         waitUntil("!document.getElementById('sheet').open");
         waitUntil("window.RenjiLogic.loanRemaining(JSON.parse(window.AndroidBridge.loadState()).loans.find(function(x){return x.title==='測試借款';})) === 60");
+        mark("TRANSACTION_SAVED");
 
         runJs("document.querySelector('[data-action=\"nav\"][data-view=\"settings\"]').click()");
         waitUntil("document.querySelector('[data-action=\"add-category\"]') !== null");
+        mark("SETTINGS_OPEN");
         assertEquals("true", evaluate("String(window.AndroidBridge.getStoragePath()).endsWith('renji-notebook-state.json')"));
         assertEquals("true", evaluate("document.querySelector('[data-action=\"edit-quick-tags\"]') !== null"));
         runJs("document.querySelector('[data-action=\"add-category\"]').click()");
@@ -122,6 +136,7 @@ public class AppSmokeTest {
         waitUntil("document.getElementById('category-form') !== null");
         runJs("var f=document.getElementById('category-form');f.elements.name.value='分類已修改';f.querySelector('[data-action=\"save-form\"]').click()");
         waitUntil("document.body.innerText.indexOf('分類已修改') >= 0 && !document.getElementById('sheet').open");
+        mark("CATEGORY_DONE");
 
         runJs("document.querySelector('[data-action=\"nav\"][data-view=\"events\"]').click()");
         waitUntil("document.querySelector('[data-action=\"primary-add\"]') !== null");
@@ -129,6 +144,7 @@ public class AppSmokeTest {
         waitUntil("document.getElementById('event-form') !== null");
         runJs("var f=document.getElementById('event-form');f.elements.title.value='主動守約';f.elements.deltaAmount.value='7';f.elements.important.checked=true;f.querySelector('[data-action=\"set-score-sign\"][data-sign=\"1\"]').click();f.querySelector('[data-action=\"save-form\"]').click()");
         waitUntil("document.body.innerText.indexOf('主動守約') >= 0 && !document.getElementById('sheet').open");
+        mark("EVENT_SAVED");
         waitUntil("Boolean(Array.from(document.querySelectorAll('.event-card.important-event')).find(function(x){return x.innerText.indexOf('主動守約')>=0;}))");
 
         runJs("var e=Array.from(document.querySelectorAll('.event-card')).find(function(x){return x.innerText.indexOf('主動守約')>=0;});e.click()");
@@ -146,6 +162,7 @@ public class AppSmokeTest {
         waitUntil("document.getElementById('confirm-dialog').open");
         runJs("document.querySelector('[data-action=\"confirm-accept\"]').click()");
         waitUntil("document.body.innerText.indexOf('未啟用') >= 0 && !document.getElementById('confirm-dialog').open");
+        mark("PIN_DONE");
 
         runJs("document.querySelector('[data-action=\"clear-all\"]').click()");
         waitUntil("document.getElementById('confirm-dialog').open");
@@ -153,6 +170,7 @@ public class AppSmokeTest {
         waitUntil("!document.getElementById('confirm-dialog').open");
         runJs("document.querySelector('[data-action=\"nav\"][data-view=\"people\"]').click()");
         waitUntil("document.body.innerText.indexOf('建立第一位人物') >= 0");
+        mark("DONE");
     }
 
     @Test

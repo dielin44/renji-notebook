@@ -64,7 +64,7 @@ jobs:
       - name: Print Android test failure details
         if: failure()
         run: |
-          grep -R -n -C 6 -E "Assertion|Condition timed|failure|FAILED|Exception|Error" \
+          grep -R -n -C 6 -E "RenjiTest|AndroidRuntime|FATAL|Assertion|Condition timed|failure|FAILED|Exception" \
             app/build/reports/androidTests/connected \
             app/build/outputs/androidTest-results/connected || true
 
