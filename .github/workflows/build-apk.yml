@@ -61,6 +61,13 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
           script: gradle --no-daemon :app:connectedDebugAndroidTest
 
+      - name: Print Android test failure details
+        if: failure()
+        run: |
+          grep -R -n -C 6 -E "Assertion|Condition timed|failure|FAILED|Exception|Error" \
+            app/build/reports/androidTests/connected \
+            app/build/outputs/androidTest-results/connected || true
+
       - name: Upload Android test report
         if: always()
         uses: actions/upload-artifact@v4

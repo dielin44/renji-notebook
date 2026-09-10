@@ -112,7 +112,7 @@ public class AppSmokeTest {
         runJs("document.querySelector('[data-action=\"nav\"][data-view=\"settings\"]').click()");
         waitUntil("document.querySelector('[data-action=\"add-category\"]') !== null");
         assertEquals("true", evaluate("String(window.AndroidBridge.getStoragePath()).endsWith('renji-notebook-state.json')"));
-        assertTrue("Quick-tag settings button missing", "true".equals(evaluate("Boolean(document.querySelector('[data-action=\\\"edit-quick-tags\\\"]'))")));
+        assertEquals("true", evaluate("document.querySelector('[data-action=\"edit-quick-tags\"]') !== null"));
         runJs("document.querySelector('[data-action=\"add-category\"]').click()");
         waitUntil("document.getElementById('category-form') !== null");
         runJs("var f=document.getElementById('category-form');f.elements.name.value='測試分類';f.querySelector('[data-action=\"save-form\"]').click()");
