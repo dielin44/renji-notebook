@@ -6,11 +6,13 @@ import android.content.ClipData;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.util.AtomicFile;
 import android.util.Base64;
 import android.util.Log;
+import android.view.View;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
@@ -50,6 +52,11 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(Color.rgb(8, 9, 11));
 
         webView = new WebView(this);
+        // Android 10 and older can crash inside the legacy Chromium/Skia GPU glyph renderer.
+        // This lightweight app renders reliably in software there; newer Android keeps GPU acceleration.
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
+            webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        }
         setContentView(webView);
 
         WebSettings settings = webView.getSettings();
