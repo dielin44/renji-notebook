@@ -8,7 +8,7 @@
   const sheetContent = document.getElementById('sheet-content');
   const confirmDialog = document.getElementById('confirm-dialog');
   const toastElement = document.getElementById('toast');
-  const APP_VERSION = '1.0.3';
+  const APP_VERSION = '1.0.4';
 
   let state = Logic.createDefaultState();
   let currentView = 'people';
@@ -747,7 +747,7 @@
   function personLoansHtml(person) {
     const loans = Logic.personLoans(state, person.id);
     const debt = Logic.personDebtSummary(state, person.id);
-    return `${sheetHead(`${person.name}｜往來明細`, '金錢、物品與歷史紀錄集中查看。')}
+    return `${sheetHead(`${person.name}｜借貸明細`, '金錢與物品的借貸、還款及歸還紀錄。')}
       <section class="summary-grid">
         <div class="summary-item"><span class="summary-label">他欠我</span><strong class="summary-value positive">$${money(debt.owedToMe)}</strong></div>
         <div class="summary-item"><span class="summary-label">我欠他</span><strong class="summary-value negative">$${money(debt.iOwe)}</strong></div>

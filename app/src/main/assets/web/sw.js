@@ -1,4 +1,4 @@
-const CACHE_NAME = 'renji-notebook-v2';
+const CACHE_NAME = 'renji-notebook-v3';
 const ASSETS = [
   './',
   './index.html',

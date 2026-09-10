@@ -92,14 +92,22 @@ public class AppSmokeTest {
         runJs("document.querySelector('[data-action=\"add-person\"]').click()");
         waitUntil("document.getElementById('person-form') !== null");
         mark("PERSON_FORM_OPEN");
-        runJs("var f=document.getElementById('person-form');f.elements.name.value='測試人物';f.elements.birthday.value='1987-01-15';f.elements.bloodType.value='O'");
+        runJs("var f=document.getElementById('person-form');f.elements.name.value='測試人物';f.elements.birthday.value='1987-01-15';f.elements.bloodType.value='O';f.elements.startScore.value='95';var raw=atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');var bytes=Uint8Array.from(raw,function(c){return c.charCodeAt(0);});var file=new File([bytes],'avatar.png',{type:'image/png'});if(typeof DataTransfer==='function'){var dt=new DataTransfer();dt.items.add(file);f.elements.avatar.files=dt.files;}else{Object.defineProperty(f.elements.avatar,'files',{value:[file]});}");
         assertEquals("true", evaluate("document.getElementById('person-form').checkValidity()"));
         runJs("document.querySelector('#person-form [data-action=\"save-form\"]').click()");
         waitUntil("document.body.innerText.indexOf('測試人物') >= 0 && !document.getElementById('sheet').open");
+        waitUntil("document.querySelector('.person-card [data-action=\"view-avatar\"] img') !== null");
+        assertEquals("true", evaluate("Boolean(JSON.parse(window.AndroidBridge.loadState()).people.find(function(p){return p.name==='測試人物'&&p.birthday==='1987-01-15'&&p.zodiac==='摩羯座'&&p.bloodType==='O'&&p.avatar&&p.avatar.dataUrl;}))"));
+        assertEquals("true", evaluate("document.querySelector('[aria-label=\"人物品質摘要\"]').innerText.indexOf('優質')>=0&&document.querySelector('[aria-label=\"人物品質摘要\"]').innerText.indexOf('劣質')>=0&&document.querySelector('[aria-label=\"人物品質摘要\"] .summary-item:nth-child(2) .summary-value').innerText==='1'"));
+        runJs("document.querySelector('.person-card [data-action=\"view-avatar\"]').click()");
+        waitUntil("document.querySelector('.avatar-viewer img') !== null");
+        runJs("document.querySelector('[data-action=\"close-sheet\"]').click()");
+        waitUntil("!document.getElementById('sheet').open");
         mark("PERSON_SAVED");
 
         runJs("var c=Array.from(document.querySelectorAll('.person-card')).find(function(x){return x.innerText.indexOf('測試人物')>=0;});c.querySelector('[data-action=\"show-person\"]').click()");
         waitUntil("document.querySelector('[data-action=\"edit-person\"]') !== null");
+        assertEquals("true", evaluate("document.getElementById('sheet-content').innerText.indexOf('生日')>=0&&document.getElementById('sheet-content').innerText.indexOf('摩羯座')>=0&&document.getElementById('sheet-content').innerText.indexOf('O 型')>=0&&document.getElementById('sheet-content').innerText.indexOf('認識日期')<0"));
         runJs("document.querySelector('[data-action=\"edit-person\"]').click()");
         waitUntil("document.getElementById('person-form') !== null");
         runJs("var f=document.getElementById('person-form');f.elements.nickname.value='已修改';f.querySelector('[data-action=\"save-form\"]').click()");
@@ -125,12 +133,21 @@ public class AppSmokeTest {
         runJs("var f=document.getElementById('transaction-form');f.elements.value.value='40';f.querySelector('[data-action=\"save-form\"]').click()");
         waitUntil("!document.getElementById('sheet').open");
         waitUntil("window.RenjiLogic.loanRemaining(JSON.parse(window.AndroidBridge.loadState()).loans.find(function(x){return x.title==='測試借款';})) === 60");
+        runJs("document.querySelector('[data-action=\"nav\"][data-view=\"people\"]').click()");
+        waitUntil("document.querySelector('.person-card [data-action=\"show-person-loans\"]') !== null");
+        runJs("document.querySelector('.person-card [data-action=\"show-person-loans\"]').click()");
+        waitUntil("document.getElementById('sheet-content').innerText.indexOf('借貸明細') >= 0");
+        assertEquals("true", evaluate("document.querySelector('#sheet-content .sheet-head h2').innerText.indexOf('往來明細')<0"));
+        runJs("document.querySelector('[data-action=\"close-sheet\"]').click()");
+        waitUntil("!document.getElementById('sheet').open");
         mark("TRANSACTION_SAVED");
 
         runJs("document.querySelector('[data-action=\"nav\"][data-view=\"settings\"]').click()");
         waitUntil("document.querySelector('[data-action=\"add-category\"]') !== null");
         mark("SETTINGS_OPEN");
         assertEquals("true", evaluate("String(window.AndroidBridge.getStoragePath()).endsWith('renji-notebook-state.json')"));
+        assertEquals("true", evaluate("document.querySelector('.storage-path-block code').innerText.indexOf('renji-notebook-state.json')>=0"));
+        assertEquals("true", evaluate("document.body.innerText.indexOf('v1.0.4')>=0"));
         assertEquals("true", evaluate("document.querySelector('[data-action=\"edit-quick-tags\"]') !== null"));
         runJs("document.querySelector('[data-action=\"add-category\"]').click()");
         waitUntil("document.getElementById('category-form') !== null");
@@ -143,6 +160,12 @@ public class AppSmokeTest {
         waitUntil("document.body.innerText.indexOf('分類已修改') >= 0 && !document.getElementById('sheet').open");
         mark("CATEGORY_DONE");
 
+        runJs("document.querySelector('[data-action=\"edit-quick-tags\"]').click()");
+        waitUntil("document.getElementById('quick-tags-form') !== null");
+        runJs("var f=document.getElementById('quick-tags-form');Array.from(f.elements.quickTags).forEach(function(x){x.checked=x.value==='需觀察';});f.querySelector('[data-action=\"save-form\"]').click()");
+        waitUntil("!document.getElementById('sheet').open");
+        assertEquals("true", evaluate("JSON.stringify(JSON.parse(window.AndroidBridge.loadState()).settings.quickTags)==='[\\\"需觀察\\\"]'"));
+
         runJs("document.querySelector('[data-action=\"nav\"][data-view=\"events\"]').click()");
         waitUntil("document.querySelector('[data-action=\"primary-add\"]') !== null");
         runJs("document.querySelector('[data-action=\"primary-add\"]').click()");
@@ -151,6 +174,26 @@ public class AppSmokeTest {
         waitUntil("document.body.innerText.indexOf('主動守約') >= 0 && !document.getElementById('sheet').open");
         mark("EVENT_SAVED");
         waitUntil("Boolean(Array.from(document.querySelectorAll('.event-card.important-event')).find(function(x){return x.innerText.indexOf('主動守約')>=0;}))");
+        assertEquals("true", evaluate("getComputedStyle(Array.from(document.querySelectorAll('.event-card.important-event')).find(function(x){return x.innerText.indexOf('主動守約')>=0;})).borderColor!=='rgba(0, 0, 0, 0)'"));
+
+        runJs("document.querySelector('[data-action=\"primary-add\"]').click()");
+        waitUntil("document.getElementById('event-form') !== null");
+        runJs("var f=document.getElementById('event-form');f.elements.title.value='違約扣分';f.elements.deltaAmount.value='3';f.querySelector('[data-action=\"set-score-sign\"][data-sign=\"-1\"]').click();f.querySelector('[data-action=\"save-form\"]').click()");
+        waitUntil("document.body.innerText.indexOf('違約扣分') >= 0 && !document.getElementById('sheet').open");
+
+        runJs("document.querySelector('[data-action=\"nav\"][data-view=\"people\"]').click()");
+        waitUntil("Boolean(Array.from(document.querySelectorAll('.person-card')).find(function(x){return x.innerText.indexOf('測試人物')>=0;}))");
+        assertEquals("true", evaluate("Boolean(Array.from(document.querySelectorAll('.quick-tags .chip')).find(function(x){return x.innerText==='需觀察';}))"));
+        runJs("var c=Array.from(document.querySelectorAll('.person-card')).find(function(x){return x.innerText.indexOf('測試人物')>=0;});c.querySelector('[data-action=\"show-person\"]').click()");
+        waitUntil("document.querySelector('[data-action=\"show-person-events\"]') !== null");
+        runJs("document.querySelector('[data-action=\"show-person-events\"]').click()");
+        waitUntil("document.querySelector('.subtabs.two-tabs') !== null");
+        assertEquals("true", evaluate("document.getElementById('sheet-content').innerText.indexOf('往來明細')>=0&&document.getElementById('sheet-content').innerText.indexOf('加分 1')>=0&&document.getElementById('sheet-content').innerText.indexOf('扣分 1')>=0&&document.getElementById('sheet-content').innerText.indexOf('主動守約')>=0"));
+        runJs("document.querySelector('[data-action=\"show-person-events\"][data-event-polarity=\"negative\"]').click()");
+        waitUntil("document.getElementById('sheet-content').innerText.indexOf('違約扣分')>=0");
+        assertEquals("true", evaluate("document.getElementById('sheet-content').innerText.indexOf('主動守約')<0"));
+        runJs("document.querySelector('[data-action=\"close-sheet\"]').click();document.querySelector('[data-action=\"nav\"][data-view=\"events\"]').click()");
+        waitUntil("Boolean(Array.from(document.querySelectorAll('.event-card')).find(function(x){return x.innerText.indexOf('主動守約')>=0;}))");
 
         runJs("var e=Array.from(document.querySelectorAll('.event-card')).find(function(x){return x.innerText.indexOf('主動守約')>=0;});e.click()");
         waitUntil("document.querySelector('[data-action=\"delete-event\"]') !== null");
