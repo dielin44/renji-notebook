@@ -67,6 +67,7 @@ jobs:
           grep -R -n -C 6 -E "RenjiTest|AndroidRuntime|FATAL|Assertion|Condition timed|failure|FAILED|Exception" \
             app/build/reports/androidTests/connected \
             app/build/outputs/androidTest-results/connected || true
+          tail -n 220 app/build/outputs/androidTest-results/connected/debug/*/logcat-*directButtons*.txt || true
 
       - name: Upload Android test report
         if: always()

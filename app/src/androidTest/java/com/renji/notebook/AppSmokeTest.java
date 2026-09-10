@@ -55,7 +55,8 @@ public class AppSmokeTest {
     }
 
     private void runJs(String script) throws Exception {
-        evaluate("(function(){" + script + ";return true;})()");
+        String result = evaluate("(function(){" + script + ";return true;})()");
+        assertEquals("JavaScript failed: " + script, "true", result);
     }
 
     private void waitUntil(String condition) throws Exception {
@@ -105,9 +106,13 @@ public class AppSmokeTest {
         waitUntil("!document.getElementById('sheet').open");
         mark("PERSON_EDITED");
 
+        mark("LOANS_NAV_BEFORE");
         runJs("document.querySelector('[data-action=\"nav\"][data-view=\"loans\"]').click()");
+        mark("LOANS_NAV_AFTER");
         waitUntil("document.querySelector('[data-action=\"primary-add\"]') !== null");
+        mark("LOANS_READY");
         runJs("document.querySelector('[data-action=\"primary-add\"]').click()");
+        mark("LOAN_ADD_CLICKED");
         waitUntil("document.getElementById('loan-form') !== null");
         mark("LOAN_FORM_OPEN");
         runJs("var f=document.getElementById('loan-form');f.elements.title.value='測試借款';f.elements.amount.value='100';f.querySelector('[data-action=\"save-form\"]').click()");
