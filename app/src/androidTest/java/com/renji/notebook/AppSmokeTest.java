@@ -81,6 +81,8 @@ public class AppSmokeTest {
     }
 
     private void screenshot(String name) throws Exception {
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        android.os.SystemClock.sleep(250);
         android.graphics.Bitmap bitmap = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
         assertNotNull(bitmap);
         java.io.File directory = InstrumentationRegistry.getInstrumentation().getTargetContext().getExternalFilesDir("qa");
@@ -89,6 +91,14 @@ public class AppSmokeTest {
             bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output);
         }
         bitmap.recycle();
+        // UTP uninstalls the application after tests. Keep QA images in the shell-owned test directory.
+        String source = new java.io.File(directory, name + ".png").getAbsolutePath();
+        for (String command : new String[] {"mkdir -p /data/local/tmp/renji-qa", "cp " + source + " /data/local/tmp/renji-qa/" + name + ".png"}) {
+            try (android.os.ParcelFileDescriptor.AutoCloseInputStream output = new android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                    InstrumentationRegistry.getInstrumentation().getUiAutomation().executeShellCommand(command))) {
+                while (output.read() != -1) { }
+            }
+        }
     }
 
     private void mark(String step) {

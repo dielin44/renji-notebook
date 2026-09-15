@@ -17,6 +17,17 @@ import java.time.LocalDate;
 
 @RunWith(AndroidJUnit4.class)
 public class LoanReminderTest {
+    private void awaitNotifications(NotificationManager manager, String id, long expected) {
+        long until = android.os.SystemClock.elapsedRealtime() + 2000;
+        long count;
+        do {
+            count = java.util.Arrays.stream(manager.getActiveNotifications()).filter(n -> id.equals(n.getTag())).count();
+            if (count == expected) return;
+            android.os.SystemClock.sleep(25);
+        } while (android.os.SystemClock.elapsedRealtime() < until);
+        assertEquals(expected, count);
+    }
+
     @Test public void reminderSchedulingCancellationAndNoDuplicateDelivery() throws Exception {
         Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         File file = new File(context.getFilesDir(), LoanReminders.STATE_FILE);
@@ -33,15 +44,26 @@ public class LoanReminderTest {
             loan.put("dueAt", LocalDate.now().minusDays(1).toString());
             Files.write(file.toPath(), state.toString().getBytes("UTF-8"));
             LoanReminders.notifyDue(context, id);
-            long first = java.util.Arrays.stream(manager.getActiveNotifications()).filter(n -> id.equals(n.getTag())).count();
-            assertEquals(1L, first);
+            awaitNotifications(manager, id, 1L);
             LoanReminders.notifyDue(context, id);
-            assertEquals(1L, java.util.Arrays.stream(manager.getActiveNotifications()).filter(n -> id.equals(n.getTag())).count());
+            awaitNotifications(manager, id, 1L);
+            // A shown reminder is no longer scheduled, but deleting its loan must still dismiss it.
+            LoanReminders.sync(context);
+            state.put("loans", new JSONArray());
+            Files.write(file.toPath(), state.toString().getBytes("UTF-8"));
+            LoanReminders.sync(context);
+            awaitNotifications(manager, id, 0L);
+            assertFalse(context.getSharedPreferences("loan_reminders", Context.MODE_PRIVATE).contains("shown:" + id));
+            state.put("loans", new JSONArray().put(loan));
+            Files.write(file.toPath(), state.toString().getBytes("UTF-8"));
+            LoanReminders.sync(context);
+            LoanReminders.notifyDue(context, id);
+            awaitNotifications(manager, id, 1L);
             loan.put("transactions", new JSONArray().put(new JSONObject().put("amount", 100)));
             Files.write(file.toPath(), state.toString().getBytes("UTF-8"));
             LoanReminders.sync(context);
             assertFalse(context.getSharedPreferences("loan_reminders", Context.MODE_PRIVATE).getStringSet("scheduled", java.util.Collections.emptySet()).contains(id));
-            assertEquals(0L, java.util.Arrays.stream(manager.getActiveNotifications()).filter(n -> id.equals(n.getTag())).count());
+            awaitNotifications(manager, id, 0L);
             JSONObject item = new JSONObject().put("kind","item").put("quantity",3).put("transactions",new JSONArray().put(new JSONObject().put("amount",0).put("quantity",1)));
             assertEquals(2.0,LoanReminders.remaining(item),0.001);
         } finally {

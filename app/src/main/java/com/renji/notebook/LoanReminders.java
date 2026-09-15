@@ -82,6 +82,9 @@ final class LoanReminders {
             if (alarms == null) return;
             SharedPreferences preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             Set<String> oldIds = new HashSet<>(preferences.getStringSet("scheduled", new HashSet<>()));
+            for (String key : preferences.getAll().keySet()) {
+                if (key.startsWith("shown:")) oldIds.add(key.substring(6));
+            }
             Set<String> currentIds = new HashSet<>();
             Set<String> liveIds = new HashSet<>();
             if (loans != null) for (int i = 0; i < loans.length(); i++) {
@@ -105,7 +108,9 @@ final class LoanReminders {
                 alarms.cancel(pending(context, id));
                 if (!liveIds.contains(id) && manager != null) manager.cancel(id, 1);
             }
-            preferences.edit().putStringSet("scheduled", currentIds).apply();
+            SharedPreferences.Editor updates = preferences.edit().putStringSet("scheduled", currentIds);
+            for (String id : oldIds) if (!liveIds.contains(id)) updates.remove("shown:" + id);
+            updates.apply();
         } catch (Exception error) {
             Log.w("RenjiReminder", "Could not synchronize reminders", error);
         }
