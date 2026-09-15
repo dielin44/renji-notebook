@@ -8,7 +8,7 @@
   const sheetContent = document.getElementById('sheet-content');
   const confirmDialog = document.getElementById('confirm-dialog');
   const toastElement = document.getElementById('toast');
-  const APP_VERSION = '1.0.4';
+  const APP_VERSION = '1.1.0';
 
   let state = Logic.createDefaultState();
   let currentView = 'people';
@@ -17,6 +17,11 @@
   let deferredInstallPrompt = null;
   let lastInteractionAt = Date.now();
   let confirmResolver = null;
+  let brandPressTimer = null;
+  let brandLongPressed = false;
+  let brandPressStart = null;
+  const introAudio = new Audio('audio/intro.m4a');
+  introAudio.preload = 'auto';
 
   const filters = {
     people: { query: '', filter: 'all', categoryId: '', sort: 'scoreLow' },
@@ -93,6 +98,23 @@
     return state.loans.find((loan) => loan.id === id);
   }
 
+  function updatePersonLoanTag(personId) {
+    const person = personById(personId);
+    if (!person) return;
+    const active = Logic.personDebtSummary(state, personId).activeCount > 0;
+    person.tags = Array.isArray(person.tags) ? person.tags : [];
+    if (active && !person.tags.includes('借貸中')) person.tags.push('借貸中');
+    if (!active) person.tags = person.tags.filter((tag) => tag !== '借貸中');
+  }
+
+  function syncAllLoanReminders() {
+    try {
+      if (window.AndroidBridge && window.AndroidBridge.syncLoanReminders) window.AndroidBridge.syncLoanReminders();
+    } catch (error) {
+      console.warn('無法更新到期提醒', error);
+    }
+  }
+
   function eventById(id) {
     return state.events.find((event) => event.id === id);
   }
@@ -110,18 +132,24 @@
   function avatarHtml(person, extraClass) {
     const className = `avatar ${extraClass || ''}`.trim();
     if (person.avatar && person.avatar.dataUrl) {
-      return `<button type="button" class="${className} avatar-button" data-action="view-avatar" data-person-id="${attribute(person.id)}" aria-label="查看 ${attribute(person.name || '人物')} 的大頭照原圖"><img src="${attribute(person.avatar.dataUrl)}" alt="${attribute(person.name || '人物')}的大頭照"></button>`;
+      return `<button type="button" class="${className} avatar-button" data-action="view-avatar" data-person-id="${attribute(person.id)}" aria-label="查看 ${attribute(person.name || '人物')} 的大頭照原圖"><img src="${attribute(person.avatar.thumbnailDataUrl || person.avatar.dataUrl)}" alt="${attribute(person.name || '人物')}的大頭照"></button>`;
     }
     return `<div class="${className}" aria-hidden="true">${initials(person)}</div>`;
   }
 
   function avatarViewerHtml(person) {
     if (!person.avatar || !person.avatar.dataUrl) return '';
-    return `${sheetHead(`${person.name || '人物'}｜大頭照`, '以較大尺寸顯示已儲存的照片。')}<div class="avatar-viewer"><img src="${attribute(person.avatar.dataUrl)}" alt="${attribute(person.name || '人物')}的大頭照原圖"></div>`;
+    return `${sheetHead(`${person.name || '人物'}｜大頭照`, '顯示原始照片；人物卡使用選定的圓形區域。')}<div class="avatar-viewer"><img src="${attribute(person.avatar.dataUrl)}" alt="${attribute(person.name || '人物')}的大頭照原圖"></div>`;
+  }
+
+  function tagStyleKey(tag) {
+    const value = state.settings.tagStyles && state.settings.tagStyles[tag];
+    return Logic.TAG_STYLE_KEYS.includes(value) ? value : 'normal';
   }
 
   function tagHtml(tag, variant) {
-    return `<span class="tag ${variant || ''}">${escapeHtml(tag)}</span>`;
+    const styleClass = variant ? '' : `tag-theme-${tagStyleKey(tag)}`;
+    return `<span class="tag ${variant || ''} ${styleClass}">${escapeHtml(tag)}</span>`;
   }
 
   function scoreBadgeHtml(score, personId, compact) {
@@ -176,10 +204,10 @@
   function topBarHtml() {
     return `
       <header class="topbar">
-        <div class="brand">
-          <h1>人際小本本</h1>
-          <p>魔羯人際風控筆記｜INTJ</p>
-        </div>
+        <button type="button" class="brand brand-button" data-role="brand-title" aria-label="點擊播放介紹，長按修改標題">
+          <h1>${escapeHtml(state.settings.appTitle)}</h1>
+          <p>${escapeHtml(state.settings.appSubtitle)}</p>
+        </button>
         <button class="icon-button" data-action="primary-add" aria-label="${viewMeta[currentView].addLabel}">＋</button>
       </header>`;
   }
@@ -220,8 +248,8 @@
     const summary = Logic.dashboardSummary(state);
     return `<section class="summary-grid" aria-label="人物品質摘要">
       <div class="summary-item"><span class="summary-label">人物</span><strong class="summary-value">${summary.people}</strong></div>
-      <div class="summary-item"><span class="summary-label">優質</span><strong class="summary-value positive">${summary.qualityCount}</strong><small class="summary-hint">90 分以上</small></div>
-      <div class="summary-item"><span class="summary-label">劣質</span><strong class="summary-value negative">${summary.poorCount}</strong><small class="summary-hint">40 分以下</small></div>
+      <div class="summary-item"><span class="summary-label">${escapeHtml(state.settings.qualityLabel)}</span><strong class="summary-value positive">${summary.qualityCount}</strong><small class="summary-hint">${state.settings.qualityThreshold} 分以上</small></div>
+      <div class="summary-item"><span class="summary-label">${escapeHtml(state.settings.poorLabel)}</span><strong class="summary-value negative">${summary.poorCount}</strong><small class="summary-hint">${state.settings.poorThreshold} 分以下</small></div>
     </section>`;
   }
 
@@ -252,11 +280,11 @@
   }
 
   function quickTagFiltersHtml() {
-    const tags = state.settings.quickTags || [];
+    const tags = state.settings.tags.filter((tag) => (state.settings.quickTags || []).includes(tag));
     return `<div class="quick-tag-head"><span>常用標籤</span><button class="text-link" data-action="edit-quick-tags">設定</button></div>
       <div class="chip-row quick-tags">${tags.map((tag) => {
         const filter = `tag:${tag}`;
-        return `<button class="chip ${filters.people.filter === filter ? 'active' : ''}" data-action="people-filter" data-filter="${attribute(filter)}">${escapeHtml(tag)}</button>`;
+        return `<button class="chip tag-filter tag-theme-${tagStyleKey(tag)} ${filters.people.filter === filter ? 'active' : ''}" data-action="people-filter" data-filter="${attribute(filter)}">${escapeHtml(tag)}</button>`;
       }).join('') || '<span class="small-muted">尚未設定首頁常用標籤</span>'}</div>`;
   }
 
@@ -308,7 +336,7 @@
         </div>
         <div class="score-cluster">${scoreBadgeHtml(score, person.id, false)}</div>
       </div>
-      ${tags.length ? `<div class="tag-list">${tags.map((tag, index) => tagHtml(tag, tag === '借貸中' ? 'gold' : index === 1 && score <= 60 ? 'danger' : '')).join('')}</div>` : ''}
+      ${tags.length ? `<div class="tag-list">${tags.map((tag) => tagHtml(tag)).join('')}</div>` : ''}
       <div class="key-lines">
         ${debtKeyLine(person)}
         <div class="key-line"><span class="key-icon">◇</span><button class="text-link" data-action="show-score" data-person-id="${attribute(person.id)}">${selectedCategory ? `所選分類：${escapeHtml(selectedCategory.name)} ${selectedCategory.score}｜總分 ${score}` : `主要風險：${low.map((item) => `${escapeHtml(item.name)} ${item.score}`).join('｜') || '尚無分類'}`}</button></div>
@@ -343,7 +371,7 @@
     return state.loans.filter((loan) => {
       const person = personById(loan.personId) || {};
       const status = Logic.loanStatus(loan);
-      const text = [person.name, person.nickname, loan.title, loan.note, loan.itemCondition, loan.serialNumber, loan.amount, loan.quantity].join(' ').toLocaleLowerCase('zh-Hant');
+      const text = [person.name, person.nickname, loan.title, loan.note, loan.itemCondition, loan.serialNumber, loan.amount, loan.quantity, ...(loan.transactions || []).flatMap((entry) => [entry.note, entry.returnCondition])].join(' ').toLocaleLowerCase('zh-Hant');
       if (query && !text.includes(query)) return false;
       if (filters.loans.filter === 'active') return !['settled', 'waived'].includes(status);
       if (filters.loans.filter === 'overdue') return status === 'overdue';
@@ -458,6 +486,8 @@
           <input class="inline-input" style="width:92px" type="number" min="0" max="100" value="${state.settings.defaultStartScore}" data-role="default-score" aria-label="新人物起始分">
         </div>
         <button class="button primary full" data-action="save-default-score">儲存起始分</button>
+        <div class="settings-line settings-divider"><strong>首頁分級</strong><span class="settings-value">${escapeHtml(state.settings.qualityLabel)} ≥ ${state.settings.qualityThreshold}｜${escapeHtml(state.settings.poorLabel)} ≤ ${state.settings.poorThreshold}</span></div>
+        <button class="button secondary full" data-action="edit-quality-settings">修改名稱與門檻</button>
       </section>
 
       <section class="settings-card">
@@ -468,9 +498,24 @@
 
       <section class="settings-card">
         <div class="settings-line"><strong>人物標籤</strong><button class="button secondary" data-action="add-tag">新增標籤</button></div>
-        <p>管理人物可使用的全部標籤；首頁搜尋列下方只顯示你指定的常用標籤。</p>
-        <div class="tag-list">${state.settings.tags.map((tag) => `<button class="tag" data-action="remove-tag" data-tag="${attribute(tag)}" title="點擊移除">${escapeHtml(tag)} ×</button>`).join('') || '<span class="small-muted">尚無人物標籤</span>'}</div>
+        <p>可調整順序與外觀；炫彩樣式採靜態漸層與光暈，不會持續閃爍。</p>
+        <div class="tag-settings-list">${state.settings.tags.map((tag, index) => `<div class="tag-settings-row">
+          <span class="tag tag-theme-${tagStyleKey(tag)}">${escapeHtml(tag)}</span>
+          <span class="tag-row-actions">
+            <button class="mini-button" data-action="move-tag" data-tag="${attribute(tag)}" data-direction="up" ${index === 0 ? 'disabled' : ''} aria-label="上移 ${attribute(tag)}">↑</button>
+            <button class="mini-button" data-action="move-tag" data-tag="${attribute(tag)}" data-direction="down" ${index === state.settings.tags.length - 1 ? 'disabled' : ''} aria-label="下移 ${attribute(tag)}">↓</button>
+            <button class="text-link" data-action="edit-tag-style" data-tag="${attribute(tag)}">外觀</button>
+            <button class="text-link danger-text" data-action="remove-tag" data-tag="${attribute(tag)}">刪除</button>
+          </span>
+        </div>`).join('') || '<span class="small-muted">尚無人物標籤</span>'}</div>
         <button class="button primary full" style="margin-top:12px" data-action="edit-quick-tags">更換首頁常用標籤</button>
+      </section>
+
+      <section class="settings-card">
+        <h3>首頁標題</h3>
+        <p>短按首頁標題播放原聲介紹；長按可修改主標題與副標題。</p>
+        <div class="settings-line"><strong>${escapeHtml(state.settings.appTitle)}</strong><span class="settings-value">${escapeHtml(state.settings.appSubtitle)}</span></div>
+        <button class="button secondary full" data-action="edit-title-settings">修改首頁標題</button>
       </section>
 
       <section class="settings-card">
@@ -550,19 +595,30 @@
     return ['A', 'B', 'O', 'AB'].map((type) => `<option value="${type}" ${selected === type ? 'selected' : ''}>${type} 型</option>`).join('');
   }
 
+  function customFieldRowHtml(field) {
+    const item = field || { id: Logic.uid('field'), label: '', value: '' };
+    return `<div class="custom-field-row" data-custom-field-row>
+      <input type="hidden" name="customFieldId" value="${attribute(item.id)}">
+      <label class="field"><span>欄位名稱</span><input name="customFieldLabel" maxlength="40" value="${attribute(item.label || '')}" placeholder="例如：公司／職業／地址"></label>
+      <label class="field"><span>內容</span><input name="customFieldValue" maxlength="500" value="${attribute(item.value || '')}" placeholder="輸入要記住的資料"></label>
+      <button type="button" class="mini-button custom-field-remove" data-action="remove-custom-field" aria-label="移除自訂欄位">×</button>
+    </div>`;
+  }
+
   function personFormHtml(person) {
     const editing = Boolean(person);
     const item = person || {
       id: '', name: '', nickname: '', phone: '', otherContact: '', relation: '',
-      birthday: '', zodiac: '', bloodType: '', avatar: null, tags: [], notes: '', startScore: state.settings.defaultStartScore
+      birthday: '', zodiac: '', bloodType: '', avatar: null, tags: [], notes: '', customFields: [], startScore: state.settings.defaultStartScore
     };
     const selectedTags = new Set(item.tags || []);
     const customTags = (item.tags || []).filter((tag) => !state.settings.tags.includes(tag));
     return `${sheetHead(editing ? '修改人物' : '新增人物', '先記重要資料，其餘日後補充即可。')}
       <form id="person-form" class="form-stack">
         <input type="hidden" name="recordId" value="${attribute(item.id)}">
-        <label class="field avatar-upload-field"><span>大頭照</span><input name="avatar" type="file" accept="image/*" data-role="avatar-input"><small>選擇一張照片，儲存後會顯示在人物卡。</small><strong class="attachment-status" data-avatar-status aria-live="polite"></strong></label>
+        <label class="field avatar-upload-field"><span>大頭照</span><input name="avatar" type="file" accept="image/*" data-role="avatar-input"><small>選擇一張照片，拖動圓圈選定人物卡顯示區域。</small><strong class="attachment-status" data-avatar-status aria-live="polite"></strong></label>
         ${item.avatar && item.avatar.dataUrl ? `<div class="avatar-form-preview"><img src="${attribute(item.avatar.dataUrl)}" alt="目前大頭照"><label class="remove-avatar"><input type="checkbox" name="removeAvatar"><span>移除目前大頭照</span></label></div>` : ''}
+        <div data-avatar-editor></div>
         <div class="form-grid">
           <label class="field"><span>姓名 *</span><input name="name" required maxlength="60" value="${attribute(item.name)}" autofocus></label>
           <label class="field"><span>暱稱</span><input name="nickname" maxlength="60" value="${attribute(item.nickname)}"></label>
@@ -575,7 +631,10 @@
           <label class="field"><span>起始分數</span><input name="startScore" type="number" min="0" max="100" required value="${attribute(item.startScore)}"><small>建立後仍可修改，但不會改動事件紀錄。</small></label>
           <label class="field full"><span>備註</span><textarea name="notes" maxlength="2000" placeholder="身份、背景或需要記住的事">${escapeHtml(item.notes)}</textarea></label>
         </div>
-        <div class="field"><span>常用標籤</span><div class="check-list">${state.settings.tags.map((tag) => `<label class="check-chip"><input type="checkbox" name="tags" value="${attribute(tag)}" ${selectedTags.has(tag) ? 'checked' : ''}><span>${escapeHtml(tag)}</span></label>`).join('')}</div></div>
+        <div class="field"><span>自訂人物資料</span><small>新增或改名後，所有人物會共用這些欄位；內容各自填寫。</small></div>
+        <div class="custom-fields" data-custom-fields>${Logic.customFieldsFor(state, item).map(customFieldRowHtml).join('')}</div>
+        <button type="button" class="button secondary full" data-action="add-custom-field">＋ 新增自訂欄位</button>
+        <div class="field"><span>常用標籤</span><div class="check-list">${state.settings.tags.map((tag) => `<label class="check-chip tag-theme-${tagStyleKey(tag)}"><input type="checkbox" name="tags" value="${attribute(tag)}" ${selectedTags.has(tag) ? 'checked' : ''}><span>${escapeHtml(tag)}</span></label>`).join('')}</div></div>
         <label class="field"><span>其他標籤</span><input name="customTags" value="${attribute(customTags.join('、'))}" placeholder="以逗號或頓號分隔"></label>
         <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">${editing ? '儲存修改' : '建立人物'}</button></div>
       </form>`;
@@ -586,6 +645,7 @@
     const band = Logic.scoreBand(score);
     const debt = Logic.personDebtSummary(state, person.id);
     const events = Logic.personEvents(state, person.id).slice(0, 3);
+    const allLoans = Logic.personLoans(state, person.id);
     const warnings = [];
     if (debt.overdueCount) warnings.push(`${debt.overdueCount} 筆借貸已逾期`);
     const low = Logic.lowestCategories(state, person, 2);
@@ -601,14 +661,14 @@
         <div class="detail-row"><span>生日</span><span>${dateText(person.birthday, false)}</span></div>
         <div class="detail-row"><span>星座</span><span>${escapeHtml(person.zodiac || Logic.zodiacFromBirthday(person.birthday) || '未設定')}</span></div>
         <div class="detail-row"><span>血型</span><span>${person.bloodType ? `${escapeHtml(person.bloodType)} 型` : '未設定'}</span></div>
-        <div class="detail-row"><span>他欠我</span><span class="amount-owed">$${money(debt.owedToMe)}</span></div>
-        <div class="detail-row"><span>我欠他</span><span class="amount-i-owe">$${money(debt.iOwe)}</span></div>
+        <div class="detail-row"><span>借貸關係</span><button class="text-link" data-action="show-person-loans" data-person-id="${attribute(person.id)}">${allLoans.length} 筆歷史｜${debt.activeCount} 筆未完成</button></div>
+        ${Logic.customFieldsFor(state, person).map((field) => `<div class="detail-row"><span>${escapeHtml(field.label || '自訂欄位')}</span><span>${escapeHtml(field.value || '未設定')}</span></div>`).join('')}
       </div>
       ${person.tags && person.tags.length ? `<div class="tag-list">${person.tags.map((tag) => tagHtml(tag)).join('')}</div>` : ''}
-      ${person.notes ? `<div class="detail-card"><h3>備註</h3><p class="event-detail">${escapeHtml(person.notes)}</p></div>` : ''}
+      <div class="detail-card"><div class="settings-line"><h3>備註</h3><button class="text-link" data-action="edit-person-notes" data-person-id="${attribute(person.id)}">查看／修改</button></div><p class="event-detail">${escapeHtml(person.notes || '尚未填寫備註')}</p></div>
       <div class="section-head"><h3 class="section-title">最近事件</h3><button class="text-link" data-action="add-event" data-person-id="${attribute(person.id)}">＋ 新增</button></div>
       ${events.length ? `<div class="timeline">${events.map((event) => `<button class="timeline-item ${event.delta >= 0 ? 'positive' : 'negative'} ${event.important ? 'important-event' : ''} text-link" data-action="show-event" data-event-id="${attribute(event.id)}"><h4>${event.important ? '<span class="important-star">★</span> ' : ''}${escapeHtml(event.title)} <span class="${event.delta >= 0 ? 'delta-positive' : 'delta-negative'}">${signed(event.delta)}</span></h4><span class="small-muted">${dateText(event.occurredAt || event.createdAt, true)}</span></button>`).join('')}</div>` : '<div class="small-muted">尚無事件紀錄</div>'}
-      <div class="card-actions" style="margin-top:18px"><button class="action-button" data-action="edit-person" data-person-id="${attribute(person.id)}">修改</button><button class="action-button" data-action="add-loan" data-person-id="${attribute(person.id)}">借貸</button><button class="action-button" data-action="show-person-events" data-person-id="${attribute(person.id)}" data-event-polarity="positive">往來明細</button></div>
+      <div class="card-actions person-detail-actions" style="margin-top:18px"><button class="action-button" data-action="edit-person" data-person-id="${attribute(person.id)}">修改人物</button><button class="action-button" data-action="show-person-loans" data-person-id="${attribute(person.id)}">借貸關係</button><button class="action-button" data-action="edit-person-notes" data-person-id="${attribute(person.id)}">備註</button><button class="action-button" data-action="show-person-events" data-person-id="${attribute(person.id)}" data-event-polarity="positive">往來明細</button></div>
       <button class="button danger full" style="margin-top:10px" data-action="delete-person" data-person-id="${attribute(person.id)}">刪除此人物</button>`;
   }
 
@@ -619,7 +679,7 @@
     return `${sheetHead(`${person.name}｜分數明細`, '總分由所有事件的加減分累積；分類分數只計入被標記的事件。')}
       <div class="score-overview">${scoreBadgeHtml(score, person.id, true)}<div><strong style="font-size:19px">${escapeHtml(band.label)}</strong><div class="small-muted">人物總分｜起始 ${person.startScore}</div></div></div>
       <div>${categories.map((category) => `<div class="score-row"><strong>${escapeHtml(category.name)}</strong><div class="score-track"><span class="score-fill band-${category.band.key}" style="width:${category.score}%"></span></div><strong style="color:${category.band.color}">${category.score}</strong></div>`).join('')}</div>
-      <div class="notice" style="margin-top:15px">借錢或借物本身不會扣分；只有你建立事件，或在歸還紀錄中主動輸入加減分，才會改變評分。</div>
+      <div class="notice" style="margin-top:15px">借錢、借物與還款本身都不會加分或扣分；只有另外建立的事件會改變評分。</div>
       <button class="button primary full" style="margin-top:14px" data-action="add-event" data-person-id="${attribute(person.id)}">新增評分事件</button>`;
   }
 
@@ -679,7 +739,7 @@
     const item = loan || {
       id: '', personId: preselectedPersonId || state.people[0].id, kind: 'money', direction: 'owedToMe',
       title: '', amount: '', quantity: 1, estimatedValue: '', startAt: localDateValue(null, false), dueAt: '',
-      interestNote: '', serialNumber: '', itemCondition: '', note: '', attachments: [], transactions: []
+      interestNote: '', serialNumber: '', itemCondition: '', note: '', attachments: [], transactions: [], reminderEnabled: false
     };
     const isItem = item.kind === 'item';
     return `${sheetHead(editing ? '修改借貸' : '新增借貸', '金錢與物品分開記錄，部分歸還不會覆蓋原始資料。')}
@@ -705,6 +765,7 @@
         <div class="form-grid">
           <label class="field"><span>借貸日期 *</span><input name="startAt" type="date" required value="${attribute(localDateValue(item.startAt, false))}"></label>
           <label class="field"><span>約定歸還日期</span><input name="dueAt" type="date" value="${attribute(item.dueAt || '')}"></label>
+          <label class="choice full"><input type="checkbox" name="reminderEnabled" ${item.reminderEnabled ? 'checked' : ''}><span>到期日上午 9:00 左右提醒</span></label>
           <label class="field full"><span>備註</span><textarea name="note" maxlength="3000" placeholder="原因、付款方式、歸還約定等">${escapeHtml(item.note)}</textarea></label>
         </div>
         <label class="field"><span>新增照片／截圖</span><input name="attachments" type="file" accept="image/*" multiple data-role="attachment-input"><small>每次最多 3 張，會壓縮後保存在本機。</small><strong class="attachment-status" data-attachment-status aria-live="polite"></strong></label>
@@ -726,6 +787,7 @@
         <div class="detail-row"><span>原始${isItem ? '數量' : '金額'}</span><span>${isItem ? `${money(original)} 件` : `$${money(original)}`}</span></div>
         <div class="detail-row"><span>借貸日期</span><span>${dateText(loan.startAt, false)}</span></div>
         <div class="detail-row"><span>約定歸還</span><span class="${status === 'overdue' ? 'overdue' : ''}">${dateText(loan.dueAt, false)}</span></div>
+        <div class="detail-row"><span>到期提醒</span><span>${loan.reminderEnabled && loan.dueAt && !['settled', 'waived'].includes(status) ? '已開啟｜當日上午 9:00 左右' : '未開啟'}</span></div>
         ${!isItem && loan.interestNote ? `<div class="detail-row"><span>利息／約定</span><span>${escapeHtml(loan.interestNote)}</span></div>` : ''}
         ${isItem && loan.estimatedValue ? `<div class="detail-row"><span>估計價值</span><span>$${money(loan.estimatedValue)}</span></div>` : ''}
         ${isItem && loan.serialNumber ? `<div class="detail-row"><span>型號／序號</span><span>${escapeHtml(loan.serialNumber)}</span></div>` : ''}
@@ -734,7 +796,7 @@
       ${loan.note ? `<div class="detail-card" style="margin-top:12px"><h3>備註</h3><p class="event-detail">${escapeHtml(loan.note)}</p></div>` : ''}
       ${attachmentHtml(loan.attachments)}
       <div class="section-head"><h3 class="section-title">${isItem ? '歸還紀錄' : '還款紀錄'}</h3></div>
-      ${(loan.transactions || []).length ? `<div class="timeline">${loan.transactions.slice().sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt)).map((transaction) => `<div class="timeline-item positive"><h4>${isItem ? `歸還 ${money(transaction.quantity)} 件` : `還款 $${money(transaction.amount)}`}</h4><span class="small-muted">${dateText(transaction.occurredAt, true)}</span>${transaction.note ? `<p>${escapeHtml(transaction.note)}</p>` : ''}</div>`).join('')}</div>` : '<div class="small-muted">尚無歸還紀錄</div>'}
+      ${(loan.transactions || []).length ? `<div class="timeline">${loan.transactions.slice().sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt)).map((transaction) => `<div class="timeline-item positive transaction-item"><div><h4>${isItem ? `歸還 ${money(transaction.quantity)} 件` : `還款 $${money(transaction.amount)}`}</h4><span class="small-muted">${dateText(transaction.occurredAt, true)}</span>${transaction.note ? `<p>${escapeHtml(transaction.note)}</p>` : ''}${transaction.returnCondition ? `<p class="small-muted">歸還狀況：${escapeHtml(transaction.returnCondition)}</p>` : ''}</div><div class="transaction-actions"><button class="text-link" data-action="edit-transaction" data-loan-id="${attribute(loan.id)}" data-transaction-id="${attribute(transaction.id)}">修改</button><button class="text-link danger-text" data-action="delete-transaction" data-loan-id="${attribute(loan.id)}" data-transaction-id="${attribute(transaction.id)}">刪除</button></div></div>`).join('')}</div>` : '<div class="small-muted">尚無歸還紀錄</div>'}
       <div class="card-actions" style="margin-top:17px">
         ${!['settled', 'waived'].includes(status) ? `<button class="action-button" data-action="add-transaction" data-loan-id="${attribute(loan.id)}">${isItem ? '記錄歸還' : '記錄還款'}</button>` : '<button class="action-button" disabled>已完成</button>'}
         <button class="action-button" data-action="edit-loan" data-loan-id="${attribute(loan.id)}">修改</button>
@@ -747,7 +809,7 @@
   function personLoansHtml(person) {
     const loans = Logic.personLoans(state, person.id);
     const debt = Logic.personDebtSummary(state, person.id);
-    return `${sheetHead(`${person.name}｜借貸明細`, '金錢與物品的借貸、還款及歸還紀錄。')}
+    return `${sheetHead(`${person.name}｜借貸關係`, '保留全部借貸、還款與歸還歷史，包含已結清及已免除。')}
       <section class="summary-grid">
         <div class="summary-item"><span class="summary-label">他欠我</span><strong class="summary-value positive">$${money(debt.owedToMe)}</strong></div>
         <div class="summary-item"><span class="summary-label">我欠他</span><strong class="summary-value negative">$${money(debt.iOwe)}</strong></div>
@@ -771,26 +833,26 @@
       ${events.length ? `<div class="list-stack person-event-list">${events.map(eventCardHtml).join('')}</div>` : `<div class="empty-state"><span class="empty-icon">▤</span><h2>尚無${polarity === 'positive' ? '加分' : '扣分'}事件</h2><p>新增事件後會依分數方向自動歸入此頁。</p></div>`}
       <button class="button primary full" style="margin-top:14px" data-action="add-event" data-person-id="${attribute(person.id)}">新增事件</button>`;
   }
-  function transactionFormHtml(loan) {
+  function transactionFormHtml(loan, transaction) {
     const person = personById(loan.personId) || { name: '已刪除人物' };
     const remaining = Logic.loanRemaining(loan);
     const isItem = loan.kind === 'item';
-    const suggestedCategory = isItem ? 'responsibility' : 'credit';
-    return `${sheetHead(isItem ? '記錄物品歸還' : '記錄還款', `${person.name}｜剩餘 ${isItem ? `${money(remaining)} 件` : `$${money(remaining)}`}`)}
+    const editing = Boolean(transaction);
+    const currentValue = editing ? Number(isItem ? transaction.quantity : transaction.amount) || 0 : remaining;
+    const original = Number(isItem ? loan.quantity : loan.amount) || 0;
+    const maximum = original - Logic.transactionTotal(loan) + (editing ? currentValue : 0);
+    return `${sheetHead(editing ? (isItem ? '修改歸還紀錄' : '修改還款紀錄') : (isItem ? '記錄物品歸還' : '記錄還款'), `${person.name}｜可記錄 ${isItem ? `${money(maximum)} 件` : `$${money(maximum)}`}`)}
       <form id="transaction-form" class="form-stack">
         <input type="hidden" name="loanId" value="${attribute(loan.id)}">
+        <input type="hidden" name="transactionId" value="${attribute(transaction ? transaction.id : '')}">
         <div class="form-grid">
-          <label class="field"><span>${isItem ? '歸還數量' : '還款金額'} *</span><input name="value" type="number" min="1" max="${remaining}" step="1" required value="${remaining}" autofocus></label>
-          <label class="field"><span>日期時間 *</span><input name="occurredAt" type="datetime-local" required value="${localDateValue(null, true)}"></label>
-          <label class="field full"><span>備註</span><textarea name="note" maxlength="1000" placeholder="付款方式、物品狀況或其他說明"></textarea></label>
-          ${isItem ? '<label class="field full"><span>歸還時狀況</span><input name="returnCondition" maxlength="300" placeholder="是否完整、損壞或缺件"></label>' : ''}
+          <label class="field"><span>${isItem ? '歸還數量' : '還款金額'} *</span><input name="value" type="number" min="1" max="${maximum}" step="1" required value="${currentValue}" autofocus></label>
+          <label class="field"><span>日期時間 *</span><input name="occurredAt" type="datetime-local" required value="${localDateValue(transaction && transaction.occurredAt, true)}"></label>
+          <label class="field full"><span>備註</span><textarea name="note" maxlength="1000" placeholder="付款方式、物品狀況或其他說明">${escapeHtml(transaction && transaction.note || '')}</textarea></label>
+          ${isItem ? `<label class="field full"><span>歸還時狀況</span><input name="returnCondition" maxlength="300" value="${attribute(transaction && transaction.returnCondition || '')}" placeholder="是否完整、損壞或缺件"></label>` : ''}
         </div>
-        <div class="notice">借貸不會自動影響評分。若這次行為值得加分或扣分，可在下方主動輸入。</div>
-        <div class="form-grid">
-          ${deltaControlHtml('scoreDelta', 0, '同時加分／扣分', false)}
-          <label class="field"><span>影響分類</span><select name="scoreCategory"><option value="">只改人物總分</option>${state.settings.categories.filter((category) => category.active !== false).map((category) => `<option value="${attribute(category.id)}" ${category.id === suggestedCategory ? 'selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}</select></label>
-        </div>
-        <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存紀錄</button></div>
+        <div class="notice">此紀錄只調整借貸餘額並保留借貸歷史，不會加分或扣分。</div>
+        <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">${editing ? '儲存修改' : '儲存紀錄'}</button></div>
       </form>`;
   }
 
@@ -805,7 +867,28 @@
 
   function quickTagsFormHtml() {
     const selected = new Set(state.settings.quickTags || []);
-    return `${sheetHead('更換首頁常用標籤', '選擇要放在人物搜尋列下方的標籤，最多 6 個。')}<form id="quick-tags-form" class="form-stack"><div class="field"><span>首頁常用標籤</span><div class="check-list">${state.settings.tags.map((tag) => `<label class="check-chip"><input type="checkbox" name="quickTags" value="${attribute(tag)}" ${selected.has(tag) ? 'checked' : ''}><span>${escapeHtml(tag)}</span></label>`).join('') || '<span class="small-muted">請先新增人物標籤</span>'}</div><small>可隨時更換，不會刪除人物身上的既有標籤。</small></div><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存常用標籤</button></div></form>`;
+    return `${sheetHead('更換首頁常用標籤', '選擇要放在人物搜尋列下方的標籤，最多 6 個。')}<form id="quick-tags-form" class="form-stack"><div class="field"><span>首頁常用標籤</span><div class="check-list">${state.settings.tags.map((tag) => `<label class="check-chip tag-theme-${tagStyleKey(tag)}"><input type="checkbox" name="quickTags" value="${attribute(tag)}" ${selected.has(tag) ? 'checked' : ''}><span>${escapeHtml(tag)}</span></label>`).join('') || '<span class="small-muted">請先新增人物標籤</span>'}</div><small>可隨時更換，不會刪除人物身上的既有標籤。</small></div><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存常用標籤</button></div></form>`;
+  }
+
+  function personNotesFormHtml(person) {
+    return `${sheetHead(`${person.name}｜備註`, '可直接查看與修改，不必開啟整份人物表單。')}<form id="person-notes-form" class="form-stack"><input type="hidden" name="personId" value="${attribute(person.id)}"><label class="field"><span>人物備註</span><textarea name="notes" maxlength="2000" rows="10" autofocus placeholder="身份、背景或需要記住的事">${escapeHtml(person.notes || '')}</textarea></label><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存備註</button></div></form>`;
+  }
+
+  function qualitySettingsFormHtml() {
+    return `${sheetHead('首頁分級設定', '自訂兩組名稱與分數門檻；低分門檻必須小於高分門檻。')}<form id="quality-settings-form" class="form-stack"><div class="form-grid"><label class="field"><span>高分名稱 *</span><input name="qualityLabel" required maxlength="12" value="${attribute(state.settings.qualityLabel)}"></label><label class="field"><span>高分門檻 *</span><input name="qualityThreshold" type="number" min="0" max="100" required value="${state.settings.qualityThreshold}"></label><label class="field"><span>低分名稱 *</span><input name="poorLabel" required maxlength="12" value="${attribute(state.settings.poorLabel)}"></label><label class="field"><span>低分門檻 *</span><input name="poorThreshold" type="number" min="0" max="100" required value="${state.settings.poorThreshold}"></label></div><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存分級</button></div></form>`;
+  }
+
+  function titleSettingsFormHtml() {
+    return `${sheetHead('修改首頁標題', '只改 App 內首頁顯示，不會更改手機桌面上的 App 名稱。')}<form id="title-settings-form" class="form-stack"><label class="field"><span>主標題 *</span><input name="appTitle" required maxlength="30" value="${attribute(state.settings.appTitle)}" autofocus></label><label class="field"><span>副標題 *</span><input name="appSubtitle" required maxlength="60" value="${attribute(state.settings.appSubtitle)}"></label><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存標題</button></div></form>`;
+  }
+
+  function tagStyleFormHtml(tag) {
+    const styles = [
+      ['normal', '經典', '沉穩單色'], ['aurora', '極光', '藍綠漸層'], ['neon', '霓虹', '紫粉光暈'],
+      ['electric', '電光', '深藍紫與青光'], ['lava', '熔岩', '紅橘漸層'], ['ice', '冰晶', '銀藍冷光'], ['obsidian', '曜金', '黑金質感']
+    ];
+    const selected = tagStyleKey(tag);
+    return `${sheetHead(`${tag}｜標籤外觀`, '選擇靜態炫彩樣式，套用到人物卡與常用標籤。')}<form id="tag-style-form" class="form-stack"><input type="hidden" name="tag" value="${attribute(tag)}"><div class="tag-style-grid">${styles.map(([key, label, hint]) => `<label class="tag-style-choice"><input type="radio" name="style" value="${key}" ${selected === key ? 'checked' : ''}><span class="tag tag-theme-${key}">${escapeHtml(tag)}</span><strong>${label}</strong><small>${hint}</small></label>`).join('')}</div><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">套用外觀</button></div></form>`;
   }
 
   function pinFormHtml() {
@@ -819,9 +902,43 @@
     toastTimer = setTimeout(() => toastElement.classList.remove('show'), 2300);
   }
 
+  function playIntroAudio() {
+    try {
+      introAudio.pause();
+      introAudio.currentTime = 0;
+      const playback = introAudio.play();
+      if (playback && typeof playback.catch === 'function') playback.catch(() => toast('原聲暫時無法播放'));
+    } catch (error) {
+      toast('原聲暫時無法播放');
+    }
+  }
+
+  function handleBrandPointerDown(event) {
+    if (!event.target.closest('[data-role="brand-title"]')) return;
+    clearTimeout(brandPressTimer);
+    brandLongPressed = false;
+    brandPressStart = { x: event.clientX, y: event.clientY };
+    brandPressTimer = setTimeout(() => {
+      brandLongPressed = true;
+      introAudio.pause();
+      openSheet(titleSettingsFormHtml());
+    }, 650);
+  }
+
+  function handleBrandPointerUp(event) {
+    clearTimeout(brandPressTimer);
+    brandPressTimer = null;
+  }
+
+  function cancelBrandPress() {
+    clearTimeout(brandPressTimer);
+    brandPressTimer = null;
+  }
+
   async function persist(message, shouldCloseSheet) {
     state.meta.updatedAt = new Date().toISOString();
     await Store.saveState(state);
+    syncAllLoanReminders();
     if (shouldCloseSheet !== false) closeSheet();
     render();
     if (message) toast(message);
@@ -871,6 +988,7 @@
     const personId = element.dataset.personId || '';
     const eventId = element.dataset.eventId || '';
     const loanId = element.dataset.loanId || '';
+    const transactionId = element.dataset.transactionId || '';
 
     if (action === 'confirm-cancel') return finishConfirm(false);
     if (action === 'confirm-accept') return finishConfirm(true);
@@ -904,6 +1022,16 @@
     if (action === 'primary-add') return openAddForCurrentView();
     if (action === 'close-sheet') return closeSheet();
     if (action === 'add-person') return openSheet(personFormHtml(null));
+    if (action === 'add-custom-field') {
+      const container = document.querySelector('[data-custom-fields]');
+      if (container) container.insertAdjacentHTML('beforeend', customFieldRowHtml(null));
+      return;
+    }
+    if (action === 'remove-custom-field') {
+      const row = element.closest('[data-custom-field-row]');
+      if (row) row.remove();
+      return;
+    }
     if (action === 'edit-person') {
       const person = personById(personId);
       if (person) openSheet(personFormHtml(person));
@@ -912,6 +1040,11 @@
     if (action === 'show-person') {
       const person = personById(personId);
       if (person) openSheet(personDetailHtml(person));
+      return;
+    }
+    if (action === 'edit-person-notes') {
+      const person = personById(personId);
+      if (person) openSheet(personNotesFormHtml(person));
       return;
     }
     if (action === 'view-avatar') {
@@ -958,7 +1091,13 @@
     }
     if (action === 'add-transaction') {
       const item = loanById(loanId);
-      if (item) openSheet(transactionFormHtml(item));
+      if (item) openSheet(transactionFormHtml(item, null));
+      return;
+    }
+    if (action === 'edit-transaction') {
+      const item = loanById(loanId);
+      const transaction = item && (item.transactions || []).find((entry) => entry.id === transactionId);
+      if (item && transaction) openSheet(transactionFormHtml(item, transaction));
       return;
     }
     if (action === 'people-filter') {
@@ -984,6 +1123,9 @@
     }
     if (action === 'add-tag') return openSheet(tagFormHtml());
     if (action === 'edit-quick-tags') return openSheet(quickTagsFormHtml());
+    if (action === 'edit-quality-settings') return openSheet(qualitySettingsFormHtml());
+    if (action === 'edit-title-settings') return openSheet(titleSettingsFormHtml());
+    if (action === 'edit-tag-style') return openSheet(tagStyleFormHtml(element.dataset.tag || ''));
     if (action === 'set-pin') return openSheet(pinFormHtml());
     if (action === 'lock-now') {
       unlocked = false;
@@ -1006,10 +1148,25 @@
     }
     if (action === 'remove-tag') {
       const removedTag = element.dataset.tag;
+      const accepted = await confirmAction('刪除標籤？', `標籤「${removedTag}」會從設定移除，人物既有標籤會保留。`, '刪除標籤');
+      if (!accepted) return;
       state.settings.tags = state.settings.tags.filter((tag) => tag !== removedTag);
       state.settings.quickTags = (state.settings.quickTags || []).filter((tag) => tag !== removedTag);
+      if (state.settings.tagStyles) delete state.settings.tagStyles[removedTag];
       if (filters.people.filter === `tag:${removedTag}`) filters.people.filter = 'all';
       return persist('已從人物標籤移除', false);
+    }
+    if (action === 'move-tag') {
+      const tag = element.dataset.tag;
+      const index = state.settings.tags.indexOf(tag);
+      const next = element.dataset.direction === 'up' ? index - 1 : index + 1;
+      if (index >= 0 && next >= 0 && next < state.settings.tags.length) {
+        const reordered = state.settings.tags.slice();
+        [reordered[index], reordered[next]] = [reordered[next], reordered[index]];
+        state.settings.tags = reordered;
+        return persist('標籤順序已更新', false);
+      }
+      return;
     }
     if (action === 'delete-person') {
       const person = personById(personId);
@@ -1035,7 +1192,18 @@
       const accepted = await confirmAction('刪除借貸？', '原始借貸及所有還款／歸還紀錄都會刪除。', '刪除借貸');
       if (!accepted) return;
       state.loans = state.loans.filter((loan) => loan.id !== loanId);
+      updatePersonLoanTag(item.personId);
       return persist('借貸已刪除');
+    }
+    if (action === 'delete-transaction') {
+      const item = loanById(loanId);
+      const transaction = item && (item.transactions || []).find((entry) => entry.id === transactionId);
+      if (!item || !transaction) return;
+      const accepted = await confirmAction('刪除這筆還款紀錄？', '借貸剩餘金額或數量會依保留的紀錄重新計算。', '刪除紀錄');
+      if (!accepted) return;
+      Logic.removeTransaction(item, transactionId);
+      updatePersonLoanTag(item.personId);
+      return persist(item.kind === 'item' ? '歸還紀錄已刪除' : '還款紀錄已刪除');
     }
     if (action === 'waive-loan') {
       const item = loanById(loanId);
@@ -1044,6 +1212,7 @@
       if (!accepted) return;
       item.waived = true;
       item.updatedAt = new Date().toISOString();
+      updatePersonLoanTag(item.personId);
       return persist('借貸已標示為免除');
     }
     if (action === 'export-statement') {
@@ -1095,6 +1264,13 @@
 
   function handleClick(event) {
     lastInteractionAt = Date.now();
+    if (event.target.closest('[data-role="brand-title"]')) {
+      event.preventDefault();
+      if (!brandLongPressed) playIntroAudio();
+      brandLongPressed = false;
+      cancelBrandPress();
+      return;
+    }
     const element = event.target.closest('[data-action]');
     if (!element || element.disabled) return;
     event.preventDefault();
@@ -1135,6 +1311,13 @@
     if (target.matches('[data-role="avatar-input"]')) {
       const status = target.closest('.field') && target.closest('.field').querySelector('[data-avatar-status]');
       if (status) status.textContent = target.files && target.files.length ? `已選擇：${target.files[0].name || '大頭照'}` : '';
+      const form = target.closest('form');
+      if (form) {
+        form._avatarDraft = null;
+        const file = target.files && target.files[0];
+        form._avatarLoading = file ? prepareAvatar(form, file) : null;
+        if (form._avatarLoading) form._avatarLoading.catch((error) => showFormError(form, error));
+      }
       return;
     }
     if (target.matches('[data-role="birthday"]')) {
@@ -1216,6 +1399,10 @@
       if (formId === 'category-form') await submitCategory(form);
       if (formId === 'tag-form') await submitTag(form);
       if (formId === 'quick-tags-form') await submitQuickTags(form);
+      if (formId === 'person-notes-form') await submitPersonNotes(form);
+      if (formId === 'quality-settings-form') await submitQualitySettings(form);
+      if (formId === 'title-settings-form') await submitTitleSettings(form);
+      if (formId === 'tag-style-form') await submitTagStyle(form);
       if (formId === 'pin-form') await submitPin(form);
       if (formId === 'unlock-form') await submitUnlock(form);
     } catch (error) {
@@ -1245,10 +1432,26 @@
     const chosenTags = data.getAll('tags').map(String);
     const customTags = splitTags(data.get('customTags'));
     const tags = Array.from(new Set([...chosenTags, ...customTags]));
+    const fieldIds = data.getAll('customFieldId').map(String);
+    const fieldLabels = data.getAll('customFieldLabel').map((value) => String(value || '').trim());
+    const fieldValues = data.getAll('customFieldValue').map((value) => String(value || '').trim());
+    const customFields = fieldLabels.map((label, index) => ({
+      id: fieldIds[index] || Logic.uid('field'),
+      label,
+      value: fieldValues[index] || ''
+    })).filter((field) => field.label || field.value);
+    if (customFields.some((field) => !field.label)) throw new Error('請填寫自訂欄位名稱');
+    if (new Set(customFields.map((field) => field.label)).size !== customFields.length) throw new Error('自訂欄位名稱不可重複');
+    const removedFields = (state.settings.customFields || []).filter((field) => !customFields.some((entry) => entry.id === field.id));
+    if (removedFields.length && !await confirmAction('刪除共用欄位？', `所有人物的「${removedFields.map((field) => field.label).join('、')}」欄位與內容都會移除。`, '刪除欄位')) return;
     const avatarInput = form.elements.avatar;
-    const avatarImages = await imageAttachments(avatarInput && avatarInput.files);
+    if (form._avatarLoading) await form._avatarLoading;
+    if (avatarInput && avatarInput.files && avatarInput.files.length && !form._avatarDraft) {
+      await prepareAvatar(form, avatarInput.files[0]);
+    }
+    const newAvatar = form._avatarDraft ? finishAvatar(form) : null;
     const stamp = new Date().toISOString();
-    const person = Object.assign(existing || {}, {
+    const person = Object.assign({}, existing || {}, {
       id: existing ? existing.id : Logic.uid('person'),
       name: String(data.get('name') || '').trim(),
       nickname: String(data.get('nickname') || '').trim(),
@@ -1258,9 +1461,10 @@
       birthday: String(data.get('birthday') || ''),
       zodiac: String(data.get('zodiac') || Logic.zodiacFromBirthday(data.get('birthday')) || ''),
       bloodType: String(data.get('bloodType') || ''),
-      avatar: avatarImages[0] || (data.has('removeAvatar') ? null : existing && existing.avatar ? existing.avatar : null),
+      avatar: newAvatar || (data.has('removeAvatar') ? null : existing && existing.avatar ? existing.avatar : null),
       tags,
       notes: String(data.get('notes') || '').trim(),
+      customFields,
       startScore: Logic.clampScore(data.get('startScore')),
       categoryStarts: existing ? existing.categoryStarts || {} : {},
       createdAt: existing ? existing.createdAt : stamp,
@@ -1269,7 +1473,10 @@
     if (!person.name) throw new Error('請輸入姓名');
     if (existing) Object.assign(existing, person);
     else state.people.push(person);
+    Logic.updateCustomFields(state, person, customFields);
     state.settings.tags = Array.from(new Set([...state.settings.tags, ...customTags]));
+    if (!state.settings.tagStyles) state.settings.tagStyles = {};
+    customTags.forEach((tag) => { if (!state.settings.tagStyles[tag]) state.settings.tagStyles[tag] = 'normal'; });
     await persist(existing ? '人物資料已更新' : '人物已建立');
   }
 
@@ -1281,7 +1488,7 @@
     const newAttachments = await imageAttachments(input && input.files);
     const stamp = new Date().toISOString();
     const occurredValue = String(data.get('occurredAt') || '');
-    const item = Object.assign(existing || {}, {
+    const item = Object.assign({}, existing || {}, {
       id: existing ? existing.id : Logic.uid('event'),
       personId: String(data.get('personId') || ''),
       title: String(data.get('title') || '').trim(),
@@ -1308,6 +1515,7 @@
     const data = new FormData(form);
     const id = String(data.get('recordId') || '');
     const existing = loanById(id);
+    const previousPersonId = existing ? existing.personId : '';
     const kind = String(data.get('kind') || 'money');
     if (existing && existing.transactions && existing.transactions.length && kind !== existing.kind) {
       throw new Error('已有還款／歸還紀錄，不能再變更金錢或物品類型');
@@ -1315,7 +1523,7 @@
     const input = form.elements.attachments;
     const newAttachments = await imageAttachments(input && input.files);
     const stamp = new Date().toISOString();
-    const item = Object.assign(existing || {}, {
+    const item = Object.assign({}, existing || {}, {
       id: existing ? existing.id : Logic.uid('loan'),
       personId: String(data.get('personId') || ''),
       kind,
@@ -1329,6 +1537,7 @@
       itemCondition: kind === 'item' ? String(data.get('itemCondition') || '').trim() : '',
       startAt: String(data.get('startAt') || ''),
       dueAt: String(data.get('dueAt') || ''),
+      reminderEnabled: data.has('reminderEnabled'),
       note: String(data.get('note') || '').trim(),
       attachments: [...(existing && existing.attachments ? existing.attachments : []), ...newAttachments],
       transactions: existing && existing.transactions ? existing.transactions : [],
@@ -1338,66 +1547,88 @@
     });
     if (!personById(item.personId)) throw new Error('找不到指定人物');
     if (!item.title) throw new Error(`請輸入${kind === 'item' ? '物品' : '借貸'}名稱`);
-    if (kind === 'money' && item.amount <= 0) throw new Error('借貸金額必須大於 0');
+    if (kind === 'money' && (!Number.isInteger(item.amount) || item.amount <= 0)) throw new Error('借貸金額必須是大於 0 的整數');
+    if (Number(kind === 'item' ? item.quantity : item.amount) < Logic.transactionTotal(item)) throw new Error('原始金額或數量不能小於已歸還總額');
+    if (item.reminderEnabled && !item.dueAt) throw new Error('開啟到期提醒前，請先設定約定歸還日期');
     if (existing) Object.assign(existing, item);
     else state.loans.push(item);
     const person = personById(item.personId);
     if (person) {
       person.updatedAt = stamp;
-      if (!person.tags.includes('借貸中')) person.tags.push('借貸中');
     }
+    updatePersonLoanTag(item.personId);
+    if (previousPersonId && previousPersonId !== item.personId) updatePersonLoanTag(previousPersonId);
     await persist(existing ? '借貸已更新' : '借貸已建立');
+    if (item.reminderEnabled && window.AndroidBridge && window.AndroidBridge.requestNotificationPermission) window.AndroidBridge.requestNotificationPermission();
   }
 
   async function submitTransaction(form) {
     const data = new FormData(form);
     const loan = loanById(String(data.get('loanId') || ''));
     if (!loan) throw new Error('找不到這筆借貸');
-    const remaining = Logic.loanRemaining(loan);
-    const value = Math.min(remaining, Math.max(0, Number(data.get('value')) || 0));
-    if (value <= 0) throw new Error('歸還數量或金額必須大於 0');
-    const stamp = new Date().toISOString();
-    const occurredValue = String(data.get('occurredAt') || '');
-    const transaction = {
-      id: Logic.uid('payment'),
-      occurredAt: occurredValue ? new Date(occurredValue).toISOString() : stamp,
+    const transactionId = String(data.get('transactionId') || '');
+    const isItem = loan.kind === 'item';
+    const value = Number(data.get('value'));
+    const occurredAt = String(data.get('occurredAt') || '');
+    const input = {
+      [isItem ? 'quantity' : 'amount']: value,
+      occurredAt: occurredAt ? new Date(occurredAt).toISOString() : new Date().toISOString(),
       note: String(data.get('note') || '').trim(),
-      returnCondition: String(data.get('returnCondition') || '').trim(),
-      createdAt: stamp
+      returnCondition: String(data.get('returnCondition') || '').trim()
     };
-    if (loan.kind === 'item') transaction.quantity = value;
-    else transaction.amount = value;
-    if (!Array.isArray(loan.transactions)) loan.transactions = [];
-    loan.transactions.push(transaction);
-    loan.updatedAt = stamp;
-
-    const delta = readSignedDelta(data, 'scoreDelta');
-    if (delta !== 0) {
-      const category = String(data.get('scoreCategory') || '');
-      state.events.push({
-        id: Logic.uid('event'),
-        personId: loan.personId,
-        title: loan.kind === 'item' ? '物品歸還表現' : '還款表現',
-        detail: `${loan.title}：${loan.kind === 'item' ? `歸還 ${money(value)} 件` : `還款 $${money(value)}`}${transaction.note ? `。${transaction.note}` : ''}`,
-        delta,
-        categoryIds: category ? [category] : [],
-        important: false,
-        followUp: Logic.loanRemaining(loan) > 0,
-        attachments: [],
-        occurredAt: transaction.occurredAt,
-        createdAt: stamp,
-        updatedAt: stamp,
-        linkedLoanId: loan.id
-      });
-    }
+    // Validate before showing confirmation; the live loan stays unchanged until accepted.
+    Logic.saveTransaction(Logic.deepClone(loan), input, transactionId);
     const person = personById(loan.personId);
-    if (person) {
-      person.updatedAt = stamp;
-      if (Logic.personDebtSummary(state, person.id).activeCount === 0) {
-        person.tags = person.tags.filter((tag) => tag !== '借貸中');
-      }
-    }
-    await persist(loan.kind === 'item' ? '歸還紀錄已儲存' : '還款紀錄已儲存');
+    const label = isItem ? '歸還紀錄' : '還款紀錄';
+    const accepted = await confirmAction(transactionId ? `確認修改${label}？` : `確認${label}？`,
+      `${person ? person.name : '人物'}｜${loan.title}\n${isItem ? `歸還 ${money(value)} 件` : `還款 $${money(value)}`}\n${dateText(input.occurredAt, true)}\n這筆紀錄不加分或扣分。`, '確認儲存');
+    if (!accepted) return;
+    Logic.saveTransaction(loan, input, transactionId);
+    if (person) person.updatedAt = new Date().toISOString();
+    updatePersonLoanTag(loan.personId);
+    await persist(transactionId ? `${label}已修改` : `${label}已儲存`);
+  }
+
+  async function submitPersonNotes(form) {
+    const data = new FormData(form);
+    const person = personById(String(data.get('personId') || ''));
+    if (!person) throw new Error('找不到指定人物');
+    person.notes = String(data.get('notes') || '').trim();
+    person.updatedAt = new Date().toISOString();
+    await persist('人物備註已更新');
+  }
+
+  async function submitQualitySettings(form) {
+    const data = new FormData(form);
+    const qualityLabel = String(data.get('qualityLabel') || '').trim();
+    const poorLabel = String(data.get('poorLabel') || '').trim();
+    const qualityThreshold = Logic.clampScore(data.get('qualityThreshold'));
+    const poorThreshold = Logic.clampScore(data.get('poorThreshold'));
+    if (!qualityLabel || !poorLabel) throw new Error('請輸入高分與低分名稱');
+    if (poorThreshold >= qualityThreshold) throw new Error('低分門檻必須小於高分門檻');
+    Object.assign(state.settings, { qualityLabel, qualityThreshold, poorLabel, poorThreshold });
+    await persist('首頁分級已更新');
+  }
+
+  async function submitTitleSettings(form) {
+    const data = new FormData(form);
+    const appTitle = String(data.get('appTitle') || '').trim();
+    const appSubtitle = String(data.get('appSubtitle') || '').trim();
+    if (!appTitle || !appSubtitle) throw new Error('主標題與副標題都不能留空');
+    state.settings.appTitle = appTitle;
+    state.settings.appSubtitle = appSubtitle;
+    await persist('首頁標題已更新');
+  }
+
+  async function submitTagStyle(form) {
+    const data = new FormData(form);
+    const tag = String(data.get('tag') || '');
+    const style = String(data.get('style') || 'normal');
+    if (!state.settings.tags.includes(tag)) throw new Error('找不到這個標籤');
+    if (!Logic.TAG_STYLE_KEYS.includes(style)) throw new Error('無效的標籤外觀');
+    if (!state.settings.tagStyles) state.settings.tagStyles = {};
+    state.settings.tagStyles[tag] = style;
+    await persist('標籤外觀已套用');
   }
 
   async function submitCategory(form) {
@@ -1418,6 +1649,8 @@
     const name = String(data.get('name') || '').trim();
     if (!name) throw new Error('請輸入標籤名稱');
     if (!state.settings.tags.includes(name)) state.settings.tags.push(name);
+    if (!state.settings.tagStyles) state.settings.tagStyles = {};
+    if (!state.settings.tagStyles[name]) state.settings.tagStyles[name] = 'normal';
     await persist('人物標籤已新增');
   }
 
@@ -1468,6 +1701,78 @@
     unlocked = true;
     lastInteractionAt = Date.now();
     render();
+  }
+
+  function prepareAvatar(form, file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('照片讀取失敗'));
+      reader.onload = () => {
+        const image = new Image();
+        image.onerror = () => reject(new Error('照片格式無法處理'));
+        image.onload = () => {
+          const editor = form.querySelector('[data-avatar-editor]');
+          form._avatarDraft = { image, dataUrl: String(reader.result), name: file.name, type: file.type, crop: { x: .5, y: .5, size: .85 } };
+          editor.innerHTML = `<div class="avatar-crop-stage" style="width:${Math.min(320, 320 * image.naturalWidth / image.naturalHeight)}px"><img src="${attribute(reader.result)}" alt="選擇頭像顯示範圍"><button type="button" class="avatar-crop-circle" aria-label="拖曳選擇頭像區域"></button></div><label class="field"><span>圓圈大小</span><input type="range" min="20" max="100" value="85" data-avatar-crop-size></label><small class="small-muted">拖動圓圈移動範圍，拖曳滑桿調整大小；原圖會保留。</small>`;
+          const stage = editor.querySelector('.avatar-crop-stage');
+          const circle = editor.querySelector('.avatar-crop-circle');
+          let drag = null;
+          function draw() {
+            const bounds = stage.getBoundingClientRect();
+            const crop = form._avatarDraft.crop;
+            const size = Math.min(bounds.width, bounds.height) * crop.size;
+            if (!size) return;
+            crop.x = Math.max(size / 2 / bounds.width, Math.min(1 - size / 2 / bounds.width, crop.x));
+            crop.y = Math.max(size / 2 / bounds.height, Math.min(1 - size / 2 / bounds.height, crop.y));
+            Object.assign(circle.style, { width: `${size}px`, height: `${size}px`, left: `${crop.x * bounds.width - size / 2}px`, top: `${crop.y * bounds.height - size / 2}px` });
+          }
+          circle.addEventListener('pointerdown', (event) => {
+            event.preventDefault();
+            circle.setPointerCapture(event.pointerId);
+            drag = { x: event.clientX, y: event.clientY, crop: Object.assign({}, form._avatarDraft.crop) };
+          });
+          circle.addEventListener('pointermove', (event) => {
+            if (!drag) return;
+            const bounds = stage.getBoundingClientRect();
+            form._avatarDraft.crop.x = drag.crop.x + (event.clientX - drag.x) / bounds.width;
+            form._avatarDraft.crop.y = drag.crop.y + (event.clientY - drag.y) / bounds.height;
+            draw();
+          });
+          circle.addEventListener('pointerup', () => { drag = null; });
+          circle.addEventListener('pointercancel', () => { drag = null; });
+          circle.addEventListener('keydown', (event) => {
+            const directions = { ArrowLeft: [-.02, 0], ArrowRight: [.02, 0], ArrowUp: [0, -.02], ArrowDown: [0, .02] };
+            if (!directions[event.key]) return;
+            event.preventDefault();
+            form._avatarDraft.crop.x += directions[event.key][0];
+            form._avatarDraft.crop.y += directions[event.key][1];
+            draw();
+          });
+          editor.querySelector('[data-avatar-crop-size]').addEventListener('input', (event) => { form._avatarDraft.crop.size = Number(event.target.value) / 100; draw(); });
+          editor.querySelector('img').onload = draw;
+          requestAnimationFrame(draw);
+          resolve();
+        };
+        image.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function finishAvatar(form) {
+    const draft = form._avatarDraft;
+    const crop = draft.crop;
+    const image = draft.image;
+    const side = Math.min(image.naturalWidth, image.naturalHeight) * crop.size;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 320;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, 320, 320);
+    const x = Math.max(0, Math.min(image.naturalWidth - side, crop.x * image.naturalWidth - side / 2));
+    const y = Math.max(0, Math.min(image.naturalHeight - side, crop.y * image.naturalHeight - side / 2));
+    context.drawImage(image, x, y, side, side, 0, 0, 320, 320);
+    return { id: Logic.uid('avatar'), name: draft.name, type: draft.type, dataUrl: draft.dataUrl, thumbnailDataUrl: canvas.toDataURL('image/jpeg', .85), crop, createdAt: new Date().toISOString() };
   }
 
   function imageAttachments(fileList) {
@@ -1598,7 +1903,7 @@
   }
 
   function renderLockScreen() {
-    app.innerHTML = `<main class="lock-screen"><img src="icons/icon-192.png" alt="人際小本本"><h1>人際小本本</h1><p>輸入 PIN 查看人際紀錄</p><form id="unlock-form" class="form-stack"><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" maxlength="8" aria-label="PIN" autofocus><button class="button primary" type="button" data-action="save-form">解鎖</button></form></main>`;
+    app.innerHTML = `<main class="lock-screen"><img src="icons/icon-192.png" alt="人際小本本"><h1>${escapeHtml(state.settings.appTitle)}</h1><p>輸入 PIN 查看人際紀錄</p><form id="unlock-form" class="form-stack"><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" maxlength="8" aria-label="PIN" autofocus><button class="button primary" type="button" data-action="save-form">解鎖</button></form></main>`;
   }
 
   function handleBack() {
@@ -1628,6 +1933,7 @@
     }
     unlocked = !state.settings.pinHash;
     render();
+    syncAllLoanReminders();
     Store.requestPersistence().catch(() => false);
 
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -1639,6 +1945,17 @@
   document.addEventListener('input', handleInput);
   document.addEventListener('change', handleChange);
   document.addEventListener('submit', handleSubmit, true);
+  document.addEventListener('pointerdown', handleBrandPointerDown);
+  document.addEventListener('pointerup', handleBrandPointerUp);
+  document.addEventListener('pointercancel', () => { brandLongPressed = true; cancelBrandPress(); });
+  document.addEventListener('pointermove', (event) => {
+    if (brandPressTimer && brandPressStart && Math.hypot(event.clientX - brandPressStart.x, event.clientY - brandPressStart.y) > 12) {
+      brandLongPressed = true; cancelBrandPress();
+    }
+  }, { passive: true });
+  document.addEventListener('contextmenu', (event) => {
+    if (event.target.closest('[data-role="brand-title"]')) event.preventDefault();
+  });
   document.addEventListener('pointerdown', () => { lastInteractionAt = Date.now(); }, { passive: true });
   document.addEventListener('keydown', () => { lastInteractionAt = Date.now(); }, { passive: true });
 
@@ -1668,6 +1985,8 @@
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
+      introAudio.pause();
+      cancelBrandPress();
       lastInteractionAt = Date.now();
       Store.saveState(state).catch(() => {});
       return;

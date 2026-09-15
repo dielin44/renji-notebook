@@ -1,6 +1,8 @@
 package com.renji.notebook;
 
 import android.app.Activity;
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
@@ -35,6 +37,7 @@ import java.util.concurrent.TimeUnit;
 public class MainActivity extends Activity {
     private static final int REQUEST_FILE_CHOOSER = 4101;
     private static final int REQUEST_SAVE_FILE = 4102;
+    private static final int REQUEST_NOTIFICATIONS = 4103;
     private static final String STATE_FILE_NAME = "renji-notebook-state.json";
 
     private WebView webView;
@@ -180,6 +183,15 @@ public class MainActivity extends Activity {
         }
     }
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == REQUEST_NOTIFICATIONS) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) LoanReminders.sync(this);
+            else Toast.makeText(this, "到期提醒需允許通知，可在系統 App 設定開啟", Toast.LENGTH_LONG).show();
+        }
+    }
+
     Uri[] collectSelectedUris(int resultCode, Intent data) {
         if (resultCode != RESULT_OK || data == null) {
             return null;
@@ -319,6 +331,20 @@ public class MainActivity extends Activity {
                 Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
                 intent.setData(Uri.parse("package:" + getPackageName()));
                 startActivity(intent);
+            });
+        }
+
+        @JavascriptInterface
+        public void syncLoanReminders() {
+            LoanReminders.sync(MainActivity.this);
+        }
+
+        @JavascriptInterface
+        public void requestNotificationPermission() {
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
+                }
             });
         }
 

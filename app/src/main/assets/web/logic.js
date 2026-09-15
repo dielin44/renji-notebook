@@ -23,9 +23,12 @@
 
   const ZODIAC_SIGNS = ['牡羊座', '金牛座', '雙子座', '巨蟹座', '獅子座', '處女座', '天秤座', '天蠍座', '射手座', '摩羯座', '水瓶座', '雙魚座'];
 
+  const TAG_STYLE_KEYS = ['normal', 'aurora', 'neon', 'electric', 'lava', 'ice', 'obsidian'];
+
   const MANAGED_FORM_IDS = [
     'person-form', 'event-form', 'loan-form', 'transaction-form',
-    'category-form', 'tag-form', 'quick-tags-form', 'pin-form', 'unlock-form'
+    'category-form', 'tag-form', 'quick-tags-form', 'pin-form', 'unlock-form',
+    'person-notes-form', 'quality-settings-form', 'title-settings-form', 'tag-style-form'
   ];
 
   function nowIso() {
@@ -93,12 +96,20 @@
   function createDefaultState() {
     const stamp = nowIso();
     return {
-      version: 2,
+      version: 3,
       settings: {
         defaultStartScore: 80,
         categories: deepClone(DEFAULT_CATEGORIES),
         tags: ['同事', '朋友', '家人', '客戶', '需觀察', '可合作', '借貸中'],
         quickTags: ['同事', '朋友', '家人', '客戶'],
+        tagStyles: {},
+        customFields: [],
+        qualityLabel: '優質',
+        qualityThreshold: 90,
+        poorLabel: '劣質',
+        poorThreshold: 40,
+        appTitle: '人際小本本',
+        appSubtitle: '魔羯人際風控筆記｜INTJ',
         pinHash: '',
         autoLockMinutes: 5
       },
@@ -113,7 +124,7 @@
     const base = createDefaultState();
     if (!input || typeof input !== 'object') return base;
     const state = {
-      version: 2,
+      version: 3,
       settings: Object.assign({}, base.settings, input.settings || {}),
       people: Array.isArray(input.people) ? input.people : [],
       events: Array.isArray(input.events) ? input.events : [],
@@ -133,11 +144,29 @@
     state.settings.quickTags = Array.from(new Set((state.settings.quickTags || []).map(String).filter(Boolean)))
       .filter((tag) => state.settings.tags.includes(tag))
       .slice(0, 6);
+    const tagStyles = state.settings.tagStyles && typeof state.settings.tagStyles === 'object'
+      ? state.settings.tagStyles
+      : {};
+    state.settings.tagStyles = state.settings.tags.reduce((result, tag) => {
+      const style = String(tagStyles[tag] || 'normal');
+      result[tag] = TAG_STYLE_KEYS.includes(style) ? style : 'normal';
+      return result;
+    }, {});
+    state.settings.qualityLabel = String(state.settings.qualityLabel || '優質').trim().slice(0, 12) || '優質';
+    state.settings.poorLabel = String(state.settings.poorLabel || '劣質').trim().slice(0, 12) || '劣質';
+    state.settings.qualityThreshold = clampScore(state.settings.qualityThreshold == null ? 90 : state.settings.qualityThreshold);
+    state.settings.poorThreshold = clampScore(state.settings.poorThreshold == null ? 40 : state.settings.poorThreshold);
+    if (state.settings.poorThreshold >= state.settings.qualityThreshold) {
+      state.settings.qualityThreshold = 90;
+      state.settings.poorThreshold = 40;
+    }
+    state.settings.appTitle = String(state.settings.appTitle || '人際小本本').trim().slice(0, 30) || '人際小本本';
+    state.settings.appSubtitle = String(state.settings.appSubtitle || '魔羯人際風控筆記｜INTJ').trim().slice(0, 60) || '魔羯人際風控筆記｜INTJ';
     state.people = state.people.map((person) => Object.assign({
       id: uid('person'),
       name: '', nickname: '', phone: '', otherContact: '', relation: '',
       birthday: '', zodiac: '', bloodType: '', avatar: null,
-      tags: [], notes: '', startScore: state.settings.defaultStartScore,
+      tags: [], notes: '', customFields: [], startScore: state.settings.defaultStartScore,
       categoryStarts: {}, createdAt: nowIso(), updatedAt: nowIso()
     }, person, {
       tags: Array.isArray(person.tags) ? person.tags : [],
@@ -145,6 +174,11 @@
       zodiac: String(person.zodiac || zodiacFromBirthday(person.birthday) || ''),
       bloodType: String(person.bloodType || ''),
       avatar: person.avatar && typeof person.avatar === 'object' && typeof person.avatar.dataUrl === 'string' ? person.avatar : null,
+      customFields: Array.isArray(person.customFields) ? person.customFields.map((field) => ({
+        id: String(field && field.id || uid('field')),
+        label: String(field && field.label || '').trim().slice(0, 40),
+        value: String(field && field.value || '').trim().slice(0, 500)
+      })).filter((field) => field.label || field.value) : [],
       categoryStarts: person.categoryStarts || {},
       startScore: clampScore(person.startScore == null ? state.settings.defaultStartScore : person.startScore)
     }));
@@ -159,14 +193,55 @@
     state.loans = state.loans.map((loan) => Object.assign({
       id: uid('loan'), personId: '', kind: 'money', direction: 'owedToMe', title: '',
       amount: 0, quantity: 1, estimatedValue: 0, startAt: '', dueAt: '',
-      note: '', attachments: [], transactions: [], waived: false, createdAt: nowIso(), updatedAt: nowIso()
+      note: '', attachments: [], transactions: [], reminderEnabled: false, waived: false, createdAt: nowIso(), updatedAt: nowIso()
     }, loan, {
       amount: Number(loan.amount) || 0,
       quantity: Number(loan.quantity) || 0,
-      transactions: Array.isArray(loan.transactions) ? loan.transactions : [],
+      transactions: Array.isArray(loan.transactions) ? loan.transactions.map((transaction) => Object.assign({
+        id: uid('payment'), occurredAt: nowIso(), note: '', returnCondition: '', createdAt: nowIso(), updatedAt: nowIso()
+      }, transaction, {
+        ...(loan.kind === 'item'
+          ? { quantity: Number(transaction && transaction.quantity) || 0 }
+          : { amount: Number(transaction && transaction.amount) || 0 })
+      })) : [],
+      reminderEnabled: Boolean(loan.reminderEnabled),
       attachments: Array.isArray(loan.attachments) ? loan.attachments : []
     }));
+    const definitions = Array.isArray(state.settings.customFields) ? state.settings.customFields : [];
+    const shared = [];
+    [...definitions, ...state.people.flatMap((person) => person.customFields)].forEach((field) => {
+      const label = String(field && field.label || '').trim();
+      if (label && !shared.some((entry) => entry.label === label)) shared.push({ id: String(field.id || uid('field')), label });
+    });
+    state.settings.customFields = shared;
+    state.people.forEach((person) => {
+      person.customFields = shared.map((definition) => {
+        const stored = person.customFields.find((entry) => entry.id === definition.id || entry.label === definition.label);
+        return Object.assign({}, definition, { value: stored ? stored.value : '' });
+      });
+    });
     return state;
+  }
+
+  function customFieldsFor(state, person) {
+    return (state.settings.customFields || []).map((definition) => {
+      const stored = (person.customFields || []).find((entry) => entry.id === definition.id);
+      return Object.assign({}, definition, { value: stored ? stored.value : '' });
+    });
+  }
+
+  function updateCustomFields(state, person, fields) {
+    const definitions = fields.map((field) => ({ id: field.id, label: field.label }));
+    if (new Set(definitions.map((field) => field.label)).size !== definitions.length) throw new Error('自訂欄位名稱不可重複');
+    if (definitions.some((field) => !field.label)) throw new Error('請填寫自訂欄位名稱');
+    state.settings.customFields = definitions;
+    state.people.forEach((other) => {
+      const values = other.id === person.id ? fields : other.customFields || [];
+      other.customFields = definitions.map((definition) => {
+        const stored = values.find((entry) => entry.id === definition.id);
+        return Object.assign({}, definition, { value: stored ? stored.value : '' });
+      });
+    });
   }
 
   function personEvents(state, personId) {
@@ -228,8 +303,39 @@
 
   function transactionTotal(loan) {
     return (loan.transactions || []).reduce((sum, transaction) => {
-      return sum + Math.max(0, Number(transaction.amount != null ? transaction.amount : transaction.quantity) || 0);
+      return sum + Math.max(0, Number(loan.kind === 'item' ? transaction.quantity : transaction.amount) || 0);
     }, 0);
+  }
+
+  function saveTransaction(loan, input, transactionId) {
+    if (!loan) throw new Error('找不到這筆借貸');
+    const transactions = loan.transactions || [];
+    const existing = transactions.find((item) => item.id === transactionId);
+    if (transactionId && !existing) throw new Error('找不到這筆還款／歸還紀錄');
+    if (loan.waived && !existing) throw new Error('已免除的借貸不能新增還款');
+    const key = loan.kind === 'item' ? 'quantity' : 'amount';
+    const value = Number(input[key]);
+    const original = Number(loan.kind === 'item' ? loan.quantity : loan.amount) || 0;
+    const otherTotal = transactionTotal(loan) - (existing ? Number(existing[key]) || 0 : 0);
+    if (!Number.isInteger(value) || value <= 0) throw new Error('請輸入大於 0 的整數');
+    if (value > original - otherTotal) throw new Error('歸還金額或數量不能超過未還餘額');
+    if (!input.occurredAt || Number.isNaN(new Date(input.occurredAt).getTime())) throw new Error('請輸入有效日期時間');
+    const stamp = nowIso();
+    const transaction = Object.assign({}, existing || {}, input, {
+      id: existing ? existing.id : uid('payment'),
+      createdAt: existing ? existing.createdAt : stamp,
+      updatedAt: stamp,
+      [key]: value
+    });
+    loan.transactions = existing ? transactions.map((item) => item.id === transaction.id ? transaction : item) : [...transactions, transaction];
+    loan.updatedAt = stamp;
+    return transaction;
+  }
+
+  function removeTransaction(loan, transactionId) {
+    if (!loan || !(loan.transactions || []).some((item) => item.id === transactionId)) throw new Error('找不到這筆還款／歸還紀錄');
+    loan.transactions = loan.transactions.filter((item) => item.id !== transactionId);
+    loan.updatedAt = nowIso();
   }
 
   function loanRemaining(loan) {
@@ -280,11 +386,13 @@
   }
 
   function dashboardSummary(state) {
+    const qualityThreshold = clampScore(state.settings.qualityThreshold == null ? 90 : state.settings.qualityThreshold);
+    const poorThreshold = clampScore(state.settings.poorThreshold == null ? 40 : state.settings.poorThreshold);
     return state.people.reduce((summary, person) => {
       const debt = personDebtSummary(state, person.id);
       const score = personScore(state, person);
-      if (score >= 90) summary.qualityCount += 1;
-      if (score <= 40) summary.poorCount += 1;
+      if (score >= qualityThreshold) summary.qualityCount += 1;
+      if (score <= poorThreshold) summary.poorCount += 1;
       summary.owedToMe += debt.owedToMe;
       summary.iOwe += debt.iOwe;
       summary.lentItems += debt.lentItems;
@@ -314,8 +422,10 @@
     return normalizeSearch([
       person.name, person.nickname, person.phone, person.otherContact, person.relation,
       person.birthday, person.zodiac, person.bloodType, person.notes, ...(person.tags || []), ...categoryNames,
+      ...(person.customFields || []).flatMap((field) => [field.label, field.value]),
       ...events.flatMap((event) => [event.title, event.detail]),
-      ...loans.flatMap((loan) => [loan.title, loan.note, loan.itemCondition, loan.returnCondition])
+      ...loans.flatMap((loan) => [loan.title, loan.note, loan.itemCondition, loan.returnCondition,
+        ...(loan.transactions || []).flatMap((transaction) => [transaction.note, transaction.returnCondition])])
     ].join(' '));
   }
 
@@ -354,6 +464,7 @@
       id: 'demo_wang', name: '王建國', nickname: '建國', phone: '0912-345-678',
       otherContact: 'LINE：wang-demo', relation: '同事', birthday: '1988-01-15', zodiac: '摩羯座', bloodType: 'O', avatar: null,
       tags: ['同事', '需觀察', '借貸中'], notes: '展示用人物，可從設定刪除全部資料。',
+      customFields: [{ id: 'demo_field_1', label: '公司', value: '展示企業' }],
       startScore: 80, categoryStarts: { credit: 57, responsibility: 60, ability: 86, relationship: 68, finance: 74 }, createdAt: '2026-08-01T10:00:00+08:00', updatedAt: '2026-09-09T10:00:00+08:00'
     };
     const p2 = {
@@ -373,7 +484,7 @@
       amount: 10000, quantity: 0, estimatedValue: 0, startAt: '2026-07-15', dueAt: '2026-07-28',
       note: '已先歸還 3,000 元。', attachments: [],
       transactions: [{ id: 'demo_payment_1', amount: 3000, occurredAt: '2026-08-02', note: '轉帳' }],
-      waived: false, createdAt: '2026-07-15T12:00:00+08:00', updatedAt: '2026-08-02T12:00:00+08:00'
+      reminderEnabled: true, waived: false, createdAt: '2026-07-15T12:00:00+08:00', updatedAt: '2026-08-02T12:00:00+08:00'
     });
     state.meta.updatedAt = nowIso();
     return state;
@@ -382,12 +493,15 @@
   return {
     DEFAULT_CATEGORIES,
     SCORE_BANDS,
+    TAG_STYLE_KEYS,
     ZODIAC_SIGNS,
     activeLoans,
     categoryScore,
     categoryScores,
     clampScore,
     createDefaultState,
+    customFieldsFor,
+    updateCustomFields,
     createDemoState,
     dashboardSummary,
     deepClone,
@@ -403,6 +517,8 @@
     personLoans,
     personScore,
     scoreBand,
+    saveTransaction,
+    removeTransaction,
     signedDelta,
     searchablePersonText,
     transactionTotal,

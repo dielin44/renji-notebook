@@ -118,7 +118,7 @@ test('舊人物資料正規化後可保留並補入新欄位', () => {
     events: [],
     loans: []
   });
-  assert.equal(state.version, 2);
+  assert.equal(state.version, 3);
   assert.equal(state.people[0].zodiac, '雙子座');
   assert.equal(state.people[0].bloodType, 'AB');
   assert.equal(state.people[0].avatar.dataUrl, 'data:image/jpeg;base64,AA==');
@@ -137,3 +137,59 @@ test('首頁常用標籤可直接篩選人物', () => {
   );
 });
 
+
+test('自訂門檻在邊界重新計算人數，匯入錯誤門檻回復預設', () => {
+  const state = Logic.normalizeState({settings:{ qualityThreshold:85, poorThreshold:50, qualityLabel:'信賴',poorLabel:'觀察' },people:[{id:'a',startScore:85},{id:'b',startScore:50},{id:'c',startScore:84},{id:'d',startScore:51}]});
+  assert.equal(Logic.dashboardSummary(state).qualityCount,1);
+  assert.equal(Logic.dashboardSummary(state).poorCount,1);
+  const invalid = Logic.normalizeState({settings:{qualityThreshold:40,poorThreshold:90}});
+  assert.equal(invalid.settings.qualityThreshold,90);
+  assert.equal(invalid.settings.poorThreshold,40);
+});
+
+for (const kind of ['money','item']) test(`${kind} 部分歸還、更正、結清、刪除與匯入皆保存原借貸，分數不變`, () => {
+  const key = kind === 'item' ? 'quantity' : 'amount';
+  const state = Logic.normalizeState({people:[{id:'p',startScore:80}],loans:[{id:'l',personId:'p',kind,[key]:100,dueAt:'2099-01-01'}]});
+  const loan = state.loans[0];
+  const input = value => ({[key]:value,occurredAt:'2026-09-15T09:00:00Z',note:'轉帳'});
+  const first = Logic.saveTransaction(loan,input(40),'');
+  assert.equal(Logic.loanRemaining(loan),60);
+  Logic.saveTransaction(loan,input(30),first.id);
+  assert.equal(Logic.loanRemaining(loan),70);
+  assert.equal(loan.transactions.length,1);
+  assert.throws(()=>Logic.saveTransaction(loan,input(71),''),/不能超過/);
+  assert.equal(Logic.loanRemaining(loan),70);
+  const second = Logic.saveTransaction(loan,input(70),'');
+  assert.equal(Logic.loanStatus(loan),'settled');
+  const imported = Logic.normalizeState(JSON.parse(JSON.stringify(state))).loans[0];
+  assert.equal(Logic.loanRemaining(imported),0);
+  assert.equal(imported[key],100);
+  assert.equal(imported.transactions.length,2);
+  Logic.removeTransaction(loan,second.id);
+  assert.equal(Logic.loanRemaining(loan),70);
+  assert.equal(Logic.loanStatus(loan),'partial');
+  assert.equal(Logic.personScore(state,'p'),80);
+  assert.equal(state.events.length,0);
+  assert.throws(()=>Logic.saveTransaction(loan,input(-1),''),/大於 0/);
+});
+
+test('新增共用欄位會出現在既有人物，改名不會轉移或清空別人的內容', () => {
+  const state = Logic.normalizeState({people:[{id:'a',name:'甲'},{id:'b',name:'乙'}]});
+  Logic.updateCustomFields(state,state.people[0],[{id:'job',label:'工作',value:'經理'}]);
+  assert.deepEqual(Logic.customFieldsFor(state,state.people[1]),[{id:'job',label:'工作',value:''}]);
+  Logic.updateCustomFields(state,state.people[1],[{id:'job',label:'職業',value:'設計師'}]);
+  assert.equal(Logic.customFieldsFor(state,state.people[0])[0].value,'經理');
+  assert.equal(Logic.customFieldsFor(state,state.people[0])[0].label,'職業');
+  assert.equal(Logic.customFieldsFor(state,state.people[1])[0].value,'設計師');
+  assert.equal(Logic.filterPeople(state,{query:'設計師'})[0].id,'b');
+  const restored=Logic.normalizeState(JSON.parse(JSON.stringify(state)));
+  assert.deepEqual(restored.settings.customFields,[{id:'job',label:'職業'}]);
+});
+
+test('標籤樣式與標題在備份匯入後保持，非法樣式不進入畫面', () => {
+  const state=Logic.normalizeState({settings:{tags:['好友','同事'],tagStyles:{好友:'neon',同事:'untrusted'},appTitle:'我的朋友',appSubtitle:'生活互動紀錄'}});
+  assert.equal(state.settings.tagStyles.好友,'neon');
+  assert.equal(state.settings.tagStyles.同事,'normal');
+  assert.equal(state.settings.appTitle,'我的朋友');
+  assert.equal(state.settings.appSubtitle,'生活互動紀錄');
+});

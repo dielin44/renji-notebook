@@ -80,6 +80,17 @@ public class AppSmokeTest {
         throw new AssertionError("Condition timed out: " + condition + " diagnostics=" + diagnostics);
     }
 
+    private void screenshot(String name) throws Exception {
+        android.graphics.Bitmap bitmap = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
+        assertNotNull(bitmap);
+        java.io.File directory = InstrumentationRegistry.getInstrumentation().getTargetContext().getExternalFilesDir("qa");
+        directory.mkdirs();
+        try (java.io.FileOutputStream output = new java.io.FileOutputStream(new java.io.File(directory, name + ".png"))) {
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output);
+        }
+        bitmap.recycle();
+    }
+
     private void mark(String step) {
         Log.i("RenjiTest", step);
     }
@@ -93,6 +104,7 @@ public class AppSmokeTest {
         waitUntil("document.getElementById('person-form') !== null");
         mark("PERSON_FORM_OPEN");
         runJs("var f=document.getElementById('person-form');f.elements.name.value='測試人物';f.elements.birthday.value='1987-01-15';f.elements.bloodType.value='O';f.elements.startScore.value='95';var raw=atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');var bytes=Uint8Array.from(raw,function(c){return c.charCodeAt(0);});var file=new File([bytes],'avatar.png',{type:'image/png'});if(typeof DataTransfer==='function'){var dt=new DataTransfer();dt.items.add(file);f.elements.avatar.files=dt.files;}else{Object.defineProperty(f.elements.avatar,'files',{value:[file]});}");
+        runJs("document.querySelector('[data-action=\"add-custom-field\"]').click();var f=document.getElementById('person-form');f.elements.customFieldLabel.value='公司';f.elements.customFieldValue.value='共用欄位測試'");
         assertEquals("true", evaluate("document.getElementById('person-form').checkValidity()"));
         runJs("document.querySelector('#person-form [data-action=\"save-form\"]').click()");
         waitUntil("document.body.innerText.indexOf('測試人物') >= 0 && !document.getElementById('sheet').open");
@@ -112,6 +124,7 @@ public class AppSmokeTest {
         waitUntil("document.getElementById('person-form') !== null");
         runJs("var f=document.getElementById('person-form');f.elements.nickname.value='已修改';f.querySelector('[data-action=\"save-form\"]').click()");
         waitUntil("!document.getElementById('sheet').open");
+        screenshot("people");
         mark("PERSON_EDITED");
 
         mark("LOANS_NAV_BEFORE");
@@ -131,23 +144,45 @@ public class AppSmokeTest {
         waitUntil("document.getElementById('transaction-form') !== null");
         mark("TRANSACTION_FORM_OPEN");
         runJs("var f=document.getElementById('transaction-form');f.elements.value.value='40';f.querySelector('[data-action=\"save-form\"]').click()");
+        assertEquals("true", evaluate("document.querySelector('#transaction-form [data-score-control]')===null"));
+        waitUntil("document.getElementById('confirm-dialog').open");
+        runJs("document.querySelector('[data-action=\"confirm-accept\"]').click()");
         waitUntil("!document.getElementById('sheet').open");
         waitUntil("window.RenjiLogic.loanRemaining(JSON.parse(window.AndroidBridge.loadState()).loans.find(function(x){return x.title==='測試借款';})) === 60");
         runJs("document.querySelector('[data-action=\"nav\"][data-view=\"people\"]').click()");
         waitUntil("document.querySelector('.person-card [data-action=\"show-person-loans\"]') !== null");
         runJs("document.querySelector('.person-card [data-action=\"show-person-loans\"]').click()");
-        waitUntil("document.getElementById('sheet-content').innerText.indexOf('借貸明細') >= 0");
+        waitUntil("document.getElementById('sheet-content').innerText.indexOf('借貸關係') >= 0");
         assertEquals("true", evaluate("document.querySelector('#sheet-content .sheet-head h2').innerText.indexOf('往來明細')<0"));
         runJs("document.querySelector('[data-action=\"close-sheet\"]').click()");
         waitUntil("!document.getElementById('sheet').open");
         mark("TRANSACTION_SAVED");
+        assertEquals("0", evaluate("JSON.parse(window.AndroidBridge.loadState()).events.length"));
+        runJs("document.querySelector('.person-card [data-action=\"show-person\"]').click();document.querySelector('[data-action=\"edit-person-notes\"]').click()");
+        waitUntil("document.getElementById('person-notes-form')!==null");
+        runJs("var f=document.getElementById('person-notes-form');f.elements.notes.value='新的備註';f.querySelector('[data-action=\"save-form\"]').click()");
+        waitUntil("!document.getElementById('sheet').open");
+        assertEquals("true", evaluate("JSON.parse(window.AndroidBridge.loadState()).people[0].notes==='新的備註'"));
+        runJs("document.querySelector('.person-card [data-action=\"show-person-loans\"]').click();document.querySelector('#sheet [data-action=\"show-loan\"]').click();document.querySelector('[data-action=\"edit-transaction\"]').click()");
+        waitUntil("document.getElementById('transaction-form')!==null");
+        runJs("var f=document.getElementById('transaction-form');f.elements.value.value='30';f.querySelector('[data-action=\"save-form\"]').click()");
+        waitUntil("document.getElementById('confirm-dialog').open");
+        runJs("document.querySelector('[data-action=\"confirm-accept\"]').click()");
+        waitUntil("!document.getElementById('sheet').open");
+        assertEquals("70", evaluate("window.RenjiLogic.loanRemaining(JSON.parse(window.AndroidBridge.loadState()).loans[0])"));
+        runJs("document.querySelector('.person-card [data-action=\"show-person-loans\"]').click();document.querySelector('#sheet [data-action=\"show-loan\"]').click();document.querySelector('[data-action=\"delete-transaction\"]').click()");
+        waitUntil("document.getElementById('confirm-dialog').open");
+        runJs("document.querySelector('[data-action=\"confirm-accept\"]').click()");
+        waitUntil("!document.getElementById('sheet').open");
+        assertEquals("100", evaluate("window.RenjiLogic.loanRemaining(JSON.parse(window.AndroidBridge.loadState()).loans[0])"));
+
 
         runJs("document.querySelector('[data-action=\"nav\"][data-view=\"settings\"]').click()");
         waitUntil("document.querySelector('[data-action=\"add-category\"]') !== null");
         mark("SETTINGS_OPEN");
         assertEquals("true", evaluate("String(window.AndroidBridge.getStoragePath()).endsWith('renji-notebook-state.json')"));
         assertEquals("true", evaluate("document.querySelector('.storage-path-block code').innerText.indexOf('renji-notebook-state.json')>=0"));
-        assertEquals("true", evaluate("document.body.innerText.indexOf('v1.0.4')>=0"));
+        assertEquals("true", evaluate("document.body.innerText.indexOf('v1.1.0')>=0"));
         assertEquals("true", evaluate("document.querySelector('[data-action=\"edit-quick-tags\"]') !== null"));
         runJs("document.querySelector('[data-action=\"add-category\"]').click()");
         waitUntil("document.getElementById('category-form') !== null");
@@ -159,6 +194,18 @@ public class AppSmokeTest {
         runJs("var f=document.getElementById('category-form');f.elements.name.value='分類已修改';f.querySelector('[data-action=\"save-form\"]').click()");
         waitUntil("document.body.innerText.indexOf('分類已修改') >= 0 && !document.getElementById('sheet').open");
         mark("CATEGORY_DONE");
+        runJs("document.querySelector('[data-action=\"edit-tag-style\"]').click()");
+        waitUntil("document.getElementById('tag-style-form')!==null");
+        screenshot("tag-styles");
+        runJs("var f=document.getElementById('tag-style-form');f.querySelector('[name=style][value=neon]').checked=true;f.querySelector('[data-action=\"save-form\"]').click()");
+        waitUntil("!document.getElementById('sheet').open");
+        assertEquals("true", evaluate("document.querySelector('.tag-settings-row .tag').classList.contains('tag-theme-neon')"));
+        runJs("document.querySelector('[data-action=\"edit-title-settings\"]').click()");
+        waitUntil("document.getElementById('title-settings-form')!==null");
+        runJs("var f=document.getElementById('title-settings-form');f.elements.appTitle.value='測試小本本';f.elements.appSubtitle.value='生活紀錄';f.querySelector('[data-action=\"save-form\"]').click()");
+        waitUntil("!document.getElementById('sheet').open");
+        assertEquals("true", evaluate("document.querySelector('.brand h1').innerText==='測試小本本'"));
+
 
         runJs("document.querySelector('[data-action=\"edit-quick-tags\"]').click()");
         waitUntil("document.getElementById('quick-tags-form') !== null");

@@ -10,8 +10,8 @@ android {
         applicationId 'com.renji.notebook'
         minSdk 26
         targetSdk 35
-        versionCode 5
-        versionName '1.0.4'
+        versionCode 6
+        versionName '1.1.0'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
@@ -33,6 +33,8 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
+
+    androidResources { noCompress 'm4a' }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

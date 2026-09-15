@@ -1,4 +1,4 @@
-const CACHE_NAME = 'renji-notebook-v3';
+const CACHE_NAME = 'renji-notebook-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -6,6 +6,7 @@ const ASSETS = [
   './logic.js',
   './storage.js',
   './app.js',
+  './audio/intro.m4a',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png'

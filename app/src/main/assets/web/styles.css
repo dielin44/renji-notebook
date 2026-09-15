@@ -1434,3 +1434,49 @@ select:focus {
   }
 }
 
+
+/* v1.1: editable headers, custom profile fields and static gradient tag presets. */
+.brand-button { background: transparent; color: inherit; border: 0; padding: 0; text-align: left; min-width: 0; flex: 1; cursor: pointer; touch-action: pan-y; -webkit-user-select: none; user-select: none; }
+.brand-button h1, .brand-button p { overflow-wrap: anywhere; white-space: normal; }
+.brand-button:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 5px; border-radius: 8px; }
+.settings-divider { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.settings-value, .detail-row > span:last-child { overflow-wrap: anywhere; min-width: 0; }
+.summary-label { overflow-wrap: anywhere; }
+.person-detail-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.custom-fields { display: grid; gap: 12px; }
+.custom-field-row { position: relative; display: grid; grid-template-columns: 1fr; gap: 10px; padding: 14px 48px 14px 14px; border: 1px solid var(--line); background: #171d26; border-radius: 14px; }
+.custom-field-remove { position: absolute; right: 8px; top: 10px; }
+.mini-button { min-width: 34px; min-height: 38px; padding: 5px; border: 1px solid #465065; border-radius: 8px; color: #dce8fa; background: #1a2230; font-size: 18px; }
+.mini-button:disabled { opacity: .3; }
+.danger-text { color: #ff9099; }
+.tag-settings-list { display: grid; gap: 8px; }
+.tag-settings-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.tag-settings-row > .tag { max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
+.tag-row-actions { display: flex; align-items: center; gap: 9px; }
+.tag-row-actions .text-link { min-height: 38px; }
+.tag-style-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.tag-style-choice { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; position: relative; padding: 15px 12px; background: #131a26; border: 1px solid #364155; border-radius: 16px; cursor: pointer; min-width: 0; }
+.tag-style-choice input { margin: 0; accent-color: #edcc7b; }
+.tag-style-choice .tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.tag-style-choice small { color: #adbdd1; }
+.tag-theme-aurora { color: #d9fff7 !important; background: linear-gradient(120deg, #134e80, #11605b 65%, #315174) !important; border: 1px solid #59e4ce !important; box-shadow: 0 0 12px #46d9c330, inset 0 1px #b3fff536; }
+.tag-theme-neon { color: #fff0fe !important; background: linear-gradient(125deg, #4f1876, #912e66) !important; border: 1px solid #f189ed !important; box-shadow: 0 0 12px #e146df35, inset 0 1px #ffb5f840; }
+.tag-theme-electric { color: #dcfbff !important; background: linear-gradient(120deg, #172c74, #392375 60%, #124963) !important; border: 1px solid #6dccff !important; box-shadow: 0 0 12px #318ff745, inset 0 1px #93ddff4d; }
+.tag-theme-lava { color: #fff4de !important; background: linear-gradient(130deg, #791b3e, #a7361e 65%, #945212) !important; border: 1px solid #ffae6c !important; box-shadow: 0 0 12px #fb653b30, inset 0 1px #ffdfa04a; }
+.tag-theme-ice { color: #142b50 !important; background: linear-gradient(125deg, #edf9ff, #b8d7f0 50%, #e1eaff) !important; border: 1px solid #f2fdff !important; box-shadow: 0 0 13px #addfff35, inset 0 1px white; }
+.tag-theme-obsidian { color: #ffe3a0 !important; background: linear-gradient(130deg, #141820, #403420 50%, #161b24) !important; border: 1px solid #d3b05f !important; box-shadow: 0 0 10px #e6c06624, inset 0 1px #ffe59935; }
+.tag-filter.active { outline: 2px solid #fff; outline-offset: 2px; }
+.tag-filter { margin: 3px; }
+.transaction-item { display: flex; gap: 12px; justify-content: space-between; }
+.transaction-item > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.transaction-actions { display: flex; flex-shrink: 0; flex-direction: column; gap: 4px; }
+.transaction-actions .text-link { min-height: 34px; }
+.confirm-card p { white-space: pre-line; }
+@media (max-width: 370px) {
+  .tag-row-actions { gap: 6px; }
+  .tag-style-grid { gap: 8px; }
+}
+.avatar-crop-stage { position: relative; margin: 6px auto 18px; max-width: 100%; overflow: hidden; border-radius: 10px; line-height: 0; }
+.avatar-crop-stage img { display: block; width: 100%; height: auto; }
+.avatar-crop-circle { position: absolute; padding: 0; border: 3px solid #fff; border-radius: 50%; background: transparent; box-shadow: 0 0 0 500px #0008; touch-action: none; cursor: move; }
+.avatar-crop-circle:focus-visible { border-color: #8ae7ff; }
