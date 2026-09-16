@@ -82,7 +82,21 @@ public class AppSmokeTest {
 
     private void screenshot(String name) throws Exception {
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-        android.os.SystemClock.sleep(250);
+        android.os.SystemClock.sleep(800);
+        CountDownLatch painted = new CountDownLatch(1);
+        activityRule.getScenario().onActivity(activity -> activity.getWebViewForTesting().postVisualStateCallback(1,
+            new android.webkit.WebView.VisualStateCallback() {
+                @Override public void onComplete(long requestId) {
+                    activity.getWebViewForTesting().invalidate();
+                    painted.countDown();
+                }
+            }));
+        assertTrue("WebView did not finish painting", painted.await(10, TimeUnit.SECONDS));
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        android.os.SystemClock.sleep(100);
+        if ("true".equals(evaluate("document.getElementById('sheet').open"))) {
+            assertEquals("Dialog must be visible in the viewport", "true", evaluate("(function(){var s=document.getElementById('sheet'),r=s.getBoundingClientRect();return r.height>100&&r.width>100&&r.top>=-1&&r.bottom<=innerHeight+1&&parseFloat(getComputedStyle(s).opacity)>0.99;})()"));
+        }
         android.graphics.Bitmap bitmap = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
         assertNotNull(bitmap);
         java.io.File directory = InstrumentationRegistry.getInstrumentation().getTargetContext().getExternalFilesDir("qa");
@@ -103,6 +117,28 @@ public class AppSmokeTest {
 
     private void mark(String step) {
         Log.i("RenjiTest", step);
+    }
+
+    private void tapVisibleElement(String selector) throws Exception {
+        org.json.JSONArray point = new org.json.JSONArray(evaluate("(function(){var r=document.querySelector(" + org.json.JSONObject.quote(selector) + ").getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2,innerWidth,innerHeight];})()"));
+        assertTrue("Control must be inside viewport", point.getDouble(0)>0 && point.getDouble(0)<point.getDouble(2) && point.getDouble(1)>0 && point.getDouble(1)<point.getDouble(3));
+        final float[] target = new float[2];
+        final float x = (float) point.getDouble(0), y = (float) point.getDouble(1), width = (float) point.getDouble(2);
+        activityRule.getScenario().onActivity(activity -> {
+            android.webkit.WebView view = activity.getWebViewForTesting();
+            int[] location = new int[2];
+            view.getLocationOnScreen(location);
+            target[0] = location[0] + x * view.getWidth() / width;
+            target[1] = location[1] + y * view.getWidth() / width;
+        });
+        long down = android.os.SystemClock.uptimeMillis();
+        android.view.MotionEvent press = android.view.MotionEvent.obtain(down, down, android.view.MotionEvent.ACTION_DOWN, target[0], target[1], 0);
+        android.view.MotionEvent release = android.view.MotionEvent.obtain(down, down + 70, android.view.MotionEvent.ACTION_UP, target[0], target[1], 0);
+        try {
+            InstrumentationRegistry.getInstrumentation().sendPointerSync(press);
+            android.os.SystemClock.sleep(70);
+            InstrumentationRegistry.getInstrumentation().sendPointerSync(release);
+        } finally { press.recycle(); release.recycle(); }
     }
 
     @Test
@@ -209,7 +245,9 @@ public class AppSmokeTest {
         runJs("document.querySelector('[data-action=\"edit-tag-style\"]').click()");
         waitUntil("document.getElementById('tag-style-form')!==null");
         screenshot("tag-styles");
-        runJs("var f=document.getElementById('tag-style-form');f.querySelector('[name=style][value=neon]').checked=true;f.querySelector('[data-action=\"save-form\"]').click()");
+        tapVisibleElement("#tag-style-form [name=style][value=neon]");
+        waitUntil("document.querySelector('#tag-style-form [name=style][value=neon]').checked");
+        tapVisibleElement("#tag-style-form [data-action=\"save-form\"]");
         waitUntil("!document.getElementById('sheet').open");
         assertEquals("true", evaluate("document.querySelector('.tag-settings-row .tag').classList.contains('tag-theme-neon')"));
         runJs("document.querySelector('[data-action=\"edit-title-settings\"]').click()");
