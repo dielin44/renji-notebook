@@ -36,8 +36,8 @@ jobs:
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
 
-      - name: Install Android 35 tools
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Install Android 36 tools
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
@@ -48,7 +48,10 @@ jobs:
         run: npm test
 
       - name: Use existing Play Console application ID
-        run: sed -i "s/applicationId 'com.renji.notebook'/applicationId 'com.renjinotbook.myapp'/" app/build.gradle
+        run: |
+          sed -i "s/applicationId 'com.renji.notebook'/applicationId 'com.renjinotbook.myapp'/" app/build.gradle
+          sed -i "s/compileSdk 35/compileSdk 36/" app/build.gradle
+          sed -i "s/targetSdk 35/targetSdk 36/" app/build.gradle
 
       - name: Build unsigned release bundle
         run: gradle --no-daemon :app:bundleRelease
