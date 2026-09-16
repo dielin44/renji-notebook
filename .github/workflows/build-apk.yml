@@ -80,7 +80,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-webview-test-report-v1.1.0
+          name: android-webview-test-report-v1.1.1
           path: |
             app/build/reports/androidTests/connected
             qa-artifacts
@@ -91,7 +91,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: renji-notebook-v1.1.0-debug
+          name: renji-notebook-v1.1.1-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
@@ -102,9 +102,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk renji-notebook-v1.1.0.apk
-          if gh release view v1.1.0 >/dev/null 2>&1; then
-            gh release upload v1.1.0 renji-notebook-v1.1.0.apk --clobber
+          cp app/build/outputs/apk/debug/app-debug.apk renji-notebook-v1.1.1.apk
+          if gh release view v1.1.1 >/dev/null 2>&1; then
+            gh release upload v1.1.1 renji-notebook-v1.1.1.apk --clobber
           else
-            gh release create v1.1.0 renji-notebook-v1.1.0.apk --target "$GITHUB_SHA" --title "人際小本本 v1.1.0" --notes-file RELEASE_NOTES.md
+            gh release create v1.1.1 renji-notebook-v1.1.1.apk --target "$GITHUB_SHA" --title "人際小本本 v1.1.1" --notes-file RELEASE_NOTES.md
           fi

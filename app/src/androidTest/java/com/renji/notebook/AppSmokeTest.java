@@ -109,6 +109,8 @@ public class AppSmokeTest {
     public void directButtonsCreateModifyAndDeleteData() throws Exception {
         mark("START");
         waitUntil("document.querySelector('[data-action=\"add-person\"]') !== null");
+        assertEquals("true", evaluate("(function(){var r=document.querySelector('.bottom-nav').getBoundingClientRect();return r.left>=-1&&r.right<=innerWidth+1&&r.width>=Math.min(600,innerWidth)*0.95;})()"));
+        assertEquals("true", evaluate("(function(){var r=document.querySelector('.fab').getBoundingClientRect();return r.left>innerWidth*0.65&&r.right<=innerWidth;})()"));
 
         runJs("document.querySelector('[data-action=\"add-person\"]').click()");
         waitUntil("document.getElementById('person-form') !== null");
@@ -192,7 +194,7 @@ public class AppSmokeTest {
         mark("SETTINGS_OPEN");
         assertEquals("true", evaluate("String(window.AndroidBridge.getStoragePath()).endsWith('renji-notebook-state.json')"));
         assertEquals("true", evaluate("document.querySelector('.storage-path-block code').innerText.indexOf('renji-notebook-state.json')>=0"));
-        assertEquals("true", evaluate("document.body.innerText.indexOf('v1.1.0')>=0"));
+        assertEquals("true", evaluate("document.body.innerText.indexOf('v1.1.1')>=0"));
         assertEquals("true", evaluate("document.querySelector('[data-action=\"edit-quick-tags\"]') !== null"));
         runJs("document.querySelector('[data-action=\"add-category\"]').click()");
         waitUntil("document.getElementById('category-form') !== null");

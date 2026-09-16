@@ -8,7 +8,7 @@
   const sheetContent = document.getElementById('sheet-content');
   const confirmDialog = document.getElementById('confirm-dialog');
   const toastElement = document.getElementById('toast');
-  const APP_VERSION = '1.1.0';
+  const APP_VERSION = '1.1.1';
 
   let state = Logic.createDefaultState();
   let currentView = 'people';
