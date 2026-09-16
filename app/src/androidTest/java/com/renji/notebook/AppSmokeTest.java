@@ -478,6 +478,7 @@ public class AppSmokeTest {
         waitUntil("document.querySelectorAll('.attachment-grid button').length===2");
         runJs("document.querySelector(\".attachment-grid button\").click()");
         waitUntil("document.getElementById('photo-viewer').open");
+        assertEquals("Photo viewer must fill the viewport", "true", evaluate("(function(){var r=document.getElementById('photo-viewer').getBoundingClientRect();return Math.abs(r.top)<2&&Math.abs(r.left)<2&&Math.abs(r.bottom-innerHeight)<2&&Math.abs(r.right-innerWidth)<2})()"));
         assertEquals("true", evaluate("Boolean(document.querySelectorAll('.gallery-scroll figure').length===2)"));
         waitUntil("document.querySelector('.gallery-scroll').scrollHeight>document.querySelector('.gallery-scroll').clientHeight");
         screenshot("v120-photo-gallery");
