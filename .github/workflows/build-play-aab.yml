@@ -52,6 +52,7 @@ jobs:
           sed -i "s/applicationId 'com.renji.notebook'/applicationId 'com.renjinotbook.myapp'/" app/build.gradle
           sed -i "s/compileSdk 35/compileSdk 36/" app/build.gradle
           sed -i "s/targetSdk 35/targetSdk 36/" app/build.gradle
+          sed -i "s/versionCode 8/versionCode 9/" app/build.gradle
 
       - name: Build unsigned release bundle
         run: gradle --no-daemon :app:bundleRelease
