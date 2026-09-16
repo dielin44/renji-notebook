@@ -64,12 +64,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
-          script: |
-            set +e
-            gradle --no-daemon :app:connectedDebugAndroidTest
-            test_result=$?
-            adb pull /data/local/tmp/renji-qa qa-artifacts
-            exit "$test_result"
+          script: bash .github/run-device-tests.sh
 
       - name: Print Android test failure details
         if: failure()

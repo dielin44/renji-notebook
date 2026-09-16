@@ -68,6 +68,7 @@ public class AppSmokeTest {
         String diagnostics = evaluate("JSON.stringify({" +
             "ready:document.readyState," +
             "sheetOpen:Boolean(document.getElementById('sheet')&&document.getElementById('sheet').open)," +
+            "navLabels:Array.from(document.querySelectorAll('.nav-label')).map(function(e){return e.innerText})," +
             "formId:document.querySelector('#sheet form')?document.querySelector('#sheet form').getAttribute('id'):''," +
             "formValid:document.querySelector('#sheet form')?document.querySelector('#sheet form').checkValidity():null," +
             "formError:(document.querySelector('[data-form-error]')||{}).innerText||''," +
@@ -338,7 +339,8 @@ public class AppSmokeTest {
         waitUntil("document.querySelector('.bottom-nav')!==null");
         runJs("var s=RenjiLogic.createDefaultState();s.settings.appTitle='驗收小本本';s.settings.appSubtitle='每一天，都值得留下';window.__testBackup=s");
         importTestBackup();
-        runJs("location.reload()");
+        runJs("window.__beforeReload=true;location.reload()");
+        waitUntil("window.__beforeReload!==true&&document.querySelectorAll('.nav-label').length===5");
         waitUntil("document.querySelector('.brand h1')&&document.querySelector('.brand h1').innerText==='驗收小本本'");
         assertEquals("true", evaluate("Boolean(Array.from(document.querySelectorAll('.nav-label')).map(function(x){return x.innerText}).join(',')==='人物,隨筆,借貸,事件,設定')"));
         assertEquals("true", evaluate("Boolean(Array.from(document.querySelectorAll('.nav-button')).every(function(x){var r=x.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&r.width>50}))"));
@@ -432,7 +434,8 @@ public class AppSmokeTest {
         waitUntil("!document.getElementById('sheet').open");
         runJs("var s=JSON.parse(AndroidBridge.loadState()),d=RenjiLogic.createDemoState();s.people=d.people;s.events=d.events;s.loans=d.loans;for(var i=0;i<7;i++){s.journal.push({id:'summary_'+i,kind:'todo',title:'近期計畫 '+(i+1),content:'待辦驗收',date:'2026-09-16',dueAt:new Date(Date.now()+(i+2)*3600000).toISOString(),completed:false,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()})}window.__testBackup=s");
         importTestBackup();
-        runJs("location.reload()");
+        runJs("window.__beforeReload=true;location.reload()");
+        waitUntil("window.__beforeReload!==true&&document.querySelectorAll('.nav-label').length===5");
         waitUntil("document.querySelectorAll('.upcoming-row').length===5");
         assertEquals("true", evaluate("Boolean(document.documentElement.dataset.theme==='aurora')"));
         assertEquals("true", evaluate("Boolean(getComputedStyle(document.querySelector('.quick-tags .tag-filter')).backgroundColor==='rgb(194, 140, 255)')"));
