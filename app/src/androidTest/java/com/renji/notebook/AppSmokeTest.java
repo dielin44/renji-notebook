@@ -96,7 +96,7 @@ public class AppSmokeTest {
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
         android.os.SystemClock.sleep(100);
         if ("true".equals(evaluate("document.getElementById('sheet').open"))) {
-            assertEquals("Dialog must be visible in the viewport", "true", evaluate("(function(){var s=document.getElementById('sheet'),r=s.getBoundingClientRect();return r.height>100&&r.width>100&&r.top>=-1&&r.bottom<=innerHeight+1&&parseFloat(getComputedStyle(s).opacity)>0.99;})()"));
+            assertEquals("Dialog must be visible: " + evaluate("JSON.stringify({rect:document.getElementById('sheet').getBoundingClientRect().toJSON(),height:innerHeight,opacity:getComputedStyle(document.getElementById('sheet')).opacity})"), "true", evaluate("(function(){var s=document.getElementById('sheet'),r=s.getBoundingClientRect();return r.height>100&&r.width>100&&r.top>=-1&&r.bottom<=innerHeight+1&&parseFloat(getComputedStyle(s).opacity)>0.99;})()"));
         }
         android.graphics.Bitmap bitmap = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
         assertNotNull(bitmap);
@@ -151,6 +151,8 @@ public class AppSmokeTest {
     @Test
     public void directButtonsCreateModifyAndDeleteData() throws Exception {
         mark("START");
+        runJs("window.__testBackup=RenjiLogic.createDefaultState()");
+        importTestBackup();
         waitUntil("document.querySelector('[data-action=\"add-person\"]') !== null");
         assertEquals("true", evaluate("(function(){var r=document.querySelector('.bottom-nav').getBoundingClientRect();return r.left>=-1&&r.right<=innerWidth+1&&r.width>=Math.min(600,innerWidth)*0.95;})()"));
         assertEquals("true", evaluate("(function(){var r=document.querySelector('.fab').getBoundingClientRect();return r.left>innerWidth*0.65&&r.right<=innerWidth;})()"));

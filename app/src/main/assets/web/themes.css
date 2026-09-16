@@ -97,3 +97,5 @@
 .check-chip span { background:inherit; color:inherit; border-color:inherit; }
 .check-chip input:checked + span { background:inherit; color:inherit; box-shadow:inset 0 0 0 2px var(--gold); }
 :root[data-theme="ice"] .score-badge,:root[data-theme="rainbow"] .score-badge { color:#ffffff; }
+/* Keep a resized modal anchored after navigating from a long detail to a short menu. */
+.sheet { position:fixed; top:auto; bottom:0; left:0; right:0; margin:0 auto; }
