@@ -47,6 +47,9 @@ jobs:
       - name: Run logic tests
         run: npm test
 
+      - name: Use existing Play Console application ID
+        run: sed -i "s/applicationId 'com.renji.notebook'/applicationId 'com.renjinotbook.myapp'/" app/build.gradle
+
       - name: Build unsigned release bundle
         run: gradle --no-daemon :app:bundleRelease
 
