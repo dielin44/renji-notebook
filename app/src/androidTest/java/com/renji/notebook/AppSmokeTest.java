@@ -120,6 +120,12 @@ public class AppSmokeTest {
     }
 
     private void tapVisibleElement(String selector) throws Exception {
+        pressVisibleElement(selector, 70);
+    }
+
+    private void pressVisibleElement(String selector, int holdMs) throws Exception {
+        runJs("document.querySelector(" + org.json.JSONObject.quote(selector) + ").scrollIntoView({block:'center'})");
+        android.os.SystemClock.sleep(180);
         org.json.JSONArray point = new org.json.JSONArray(evaluate("(function(){var r=document.querySelector(" + org.json.JSONObject.quote(selector) + ").getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2,innerWidth,innerHeight];})()"));
         assertTrue("Control must be inside viewport", point.getDouble(0)>0 && point.getDouble(0)<point.getDouble(2) && point.getDouble(1)>0 && point.getDouble(1)<point.getDouble(3));
         final float[] target = new float[2];
@@ -133,10 +139,10 @@ public class AppSmokeTest {
         });
         long down = android.os.SystemClock.uptimeMillis();
         android.view.MotionEvent press = android.view.MotionEvent.obtain(down, down, android.view.MotionEvent.ACTION_DOWN, target[0], target[1], 0);
-        android.view.MotionEvent release = android.view.MotionEvent.obtain(down, down + 70, android.view.MotionEvent.ACTION_UP, target[0], target[1], 0);
+        android.view.MotionEvent release = android.view.MotionEvent.obtain(down, down + holdMs, android.view.MotionEvent.ACTION_UP, target[0], target[1], 0);
         try {
             InstrumentationRegistry.getInstrumentation().sendPointerSync(press);
-            android.os.SystemClock.sleep(70);
+            android.os.SystemClock.sleep(holdMs);
             InstrumentationRegistry.getInstrumentation().sendPointerSync(release);
         } finally { press.recycle(); release.recycle(); }
     }
@@ -230,7 +236,7 @@ public class AppSmokeTest {
         mark("SETTINGS_OPEN");
         assertEquals("true", evaluate("String(window.AndroidBridge.getStoragePath()).endsWith('renji-notebook-state.json')"));
         assertEquals("true", evaluate("document.querySelector('.storage-path-block code').innerText.indexOf('renji-notebook-state.json')>=0"));
-        assertEquals("true", evaluate("document.body.innerText.indexOf('v1.1.1')>=0"));
+        assertEquals("true", evaluate("document.body.innerText.indexOf('v1.2.0')>=0"));
         assertEquals("true", evaluate("document.querySelector('[data-action=\"edit-quick-tags\"]') !== null"));
         runJs("document.querySelector('[data-action=\"add-category\"]').click()");
         waitUntil("document.getElementById('category-form') !== null");
@@ -316,6 +322,168 @@ public class AppSmokeTest {
         runJs("document.querySelector('[data-action=\"nav\"][data-view=\"people\"]').click()");
         waitUntil("document.body.innerText.indexOf('建立第一位人物') >= 0");
         mark("DONE");
+    }
+
+    @Test
+    public void confirmedFeatureChecklist() throws Exception {
+        waitUntil("document.querySelector('.bottom-nav')!==null");
+        runJs("var s=RenjiLogic.createDefaultState();s.settings.appTitle='驗收小本本';s.settings.appSubtitle='每一天，都值得留下';AndroidBridge.saveState(JSON.stringify(s));location.reload()");
+        waitUntil("document.querySelector('.brand h1')&&document.querySelector('.brand h1').innerText==='驗收小本本'");
+        assertEquals("true", evaluate("Boolean(Array.from(document.querySelectorAll('.nav-label')).map(function(x){return x.innerText}).join(',')==='人物,隨筆,借貸,事件,設定')"));
+        assertEquals("true", evaluate("Boolean(Array.from(document.querySelectorAll('.nav-button')).every(function(x){var r=x.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&r.width>50}))"));
+        runJs("document.querySelector(\"[data-action=\\\"nav\\\"][data-view=\\\"journal\\\"]\").click()");
+        runJs("document.querySelector(\"[data-action=\\\"add-journal\\\"][data-kind=\\\"note\\\"]\").click()");
+        waitUntil("document.getElementById('journal-form')!==null");
+        runJs("var f=document.getElementById('journal-form');f.elements.title.value='咖啡靈感';f.elements.content.value='寫給自己的隨手筆記\\n生活裡的小小發現。'");
+        runJs("document.querySelector(\"#journal-form [data-action=\\\"save-form\\\"]\").click()");
+        waitUntil("!document.getElementById('sheet').open");
+        assertEquals("true", evaluate("Boolean(JSON.parse(AndroidBridge.loadState()).journal.length===1&&JSON.parse(AndroidBridge.loadState()).people.length===0)"));
+        runJs("document.querySelector(\"[data-action=\\\"add-journal\\\"][data-kind=\\\"todo\\\"]\").click()");
+        waitUntil("document.getElementById('journal-form')!==null");
+        runJs("var f=document.getElementById('journal-form');f.elements.title.value='買咖啡豆';f.elements.content.value='週末的早餐';var d=new Date(Date.now()+3600000);d.setMinutes(d.getMinutes()-d.getTimezoneOffset());f.elements.dueAt.value=d.toISOString().slice(0,16)");
+        runJs("document.querySelector(\"#journal-form [data-action=\\\"save-form\\\"]\").click()");
+        waitUntil("!document.getElementById('sheet').open");
+        assertEquals("true", evaluate("Boolean(document.querySelector('.journal-card.status-upcoming')!==null)"));
+        runJs("var search=document.querySelector('[data-role=search]');search.value='咖啡';search.dispatchEvent(new Event('input',{bubbles:true}))");
+        assertEquals("true", evaluate("Boolean(document.querySelectorAll('.journal-card').length===2)"));
+        screenshot("v120-journal-dark");
+        runJs("document.querySelector(\".journal-complete\").click()");
+        waitUntil("document.querySelector('.status-done')!==null");
+        runJs("document.querySelector(\"[data-action=\\\"nav\\\"][data-view=\\\"people\\\"]\").click()");
+        assertEquals("true", evaluate("Boolean(document.querySelector('.upcoming-section')===null)"));
+        runJs("document.querySelector(\"[data-action=\\\"nav\\\"][data-view=\\\"journal\\\"]\").click()");
+        runJs("document.querySelector(\".journal-complete\").click()");
+        waitUntil("document.querySelector('.status-upcoming')!==null");
+        runJs("document.querySelector(\"[data-action=\\\"nav\\\"][data-view=\\\"people\\\"]\").click()");
+        assertEquals("true", evaluate("Boolean(document.querySelectorAll('.upcoming-row').length===1)"));
+        runJs("document.querySelector(\".upcoming-row\").click()");
+        waitUntil("document.querySelector('[data-action=edit-journal]')!==null");
+        runJs("document.querySelector(\"[data-action=\\\"edit-journal\\\"]\").click()");
+        waitUntil("document.getElementById('journal-form')!==null");
+        runJs("document.getElementById('journal-form').elements.content.value='內容已修改'");
+        runJs("document.querySelector(\"#journal-form [data-action=\\\"save-form\\\"]\").click()");
+        waitUntil("!document.getElementById('sheet').open");
+        runJs("document.querySelector(\".upcoming-row\").click()");
+        waitUntil("document.querySelector('[data-action=delete-journal]')!==null");
+        runJs("document.querySelector(\"[data-action=\\\"delete-journal\\\"]\").click()");
+        waitUntil("document.getElementById('confirm-dialog').open");
+        runJs("document.querySelector(\"[data-action=\\\"confirm-cancel\\\"]\").click()");
+        assertEquals("true", evaluate("Boolean(JSON.parse(AndroidBridge.loadState()).journal.length===2)"));
+        runJs("document.querySelector(\"[data-action=\\\"close-sheet\\\"]\").click()");
+        runJs("document.querySelector(\"[data-action=\\\"nav\\\"][data-view=\\\"settings\\\"]\").click()");
+        runJs("document.querySelector(\"[data-action=\\\"set-theme\\\"][data-theme=\\\"aurora\\\"]\").click()");
+        waitUntil("document.documentElement.dataset.theme==='aurora'");
+        assertEquals("true", evaluate("Boolean(JSON.parse(AndroidBridge.loadState()).settings.theme==='aurora')"));
+        screenshot("v120-theme-aurora");
+        runJs("document.querySelector(\"[data-action=\\\"set-theme\\\"][data-theme=\\\"neon\\\"]\").click()");
+        waitUntil("document.documentElement.dataset.theme==='neon'");
+        assertEquals("true", evaluate("Boolean(JSON.parse(AndroidBridge.loadState()).settings.theme==='neon')"));
+        runJs("document.querySelector(\"[data-action=\\\"set-theme\\\"][data-theme=\\\"electric\\\"]\").click()");
+        waitUntil("document.documentElement.dataset.theme==='electric'");
+        assertEquals("true", evaluate("Boolean(JSON.parse(AndroidBridge.loadState()).settings.theme==='electric')"));
+        runJs("document.querySelector(\"[data-action=\\\"set-theme\\\"][data-theme=\\\"lava\\\"]\").click()");
+        waitUntil("document.documentElement.dataset.theme==='lava'");
+        assertEquals("true", evaluate("Boolean(JSON.parse(AndroidBridge.loadState()).settings.theme==='lava')"));
+        runJs("document.querySelector(\"[data-action=\\\"set-theme\\\"][data-theme=\\\"ice\\\"]\").click()");
+        waitUntil("document.documentElement.dataset.theme==='ice'");
+        assertEquals("true", evaluate("Boolean(JSON.parse(AndroidBridge.loadState()).settings.theme==='ice')"));
+        runJs("document.querySelector(\"[data-action=\\\"set-theme\\\"][data-theme=\\\"obsidian\\\"]\").click()");
+        waitUntil("document.documentElement.dataset.theme==='obsidian'");
+        assertEquals("true", evaluate("Boolean(JSON.parse(AndroidBridge.loadState()).settings.theme==='obsidian')"));
+        runJs("document.querySelector(\"[data-action=\\\"set-theme\\\"][data-theme=\\\"rainbow\\\"]\").click()");
+        waitUntil("document.documentElement.dataset.theme==='rainbow'");
+        assertEquals("true", evaluate("Boolean(JSON.parse(AndroidBridge.loadState()).settings.theme==='rainbow')"));
+        screenshot("v120-theme-rainbow");
+        runJs("document.querySelector(\"[data-action=\\\"set-theme\\\"][data-theme=\\\"black\\\"]\").click()");
+        waitUntil("document.documentElement.dataset.theme==='black'");
+        assertEquals("true", evaluate("Boolean(JSON.parse(AndroidBridge.loadState()).settings.theme==='black')"));
+        runJs("document.querySelector(\"[data-action=\\\"set-theme\\\"][data-theme=\\\"rainbow\\\"]\").click()");
+        waitUntil("document.documentElement.dataset.theme==='rainbow'");
+        runJs("document.querySelector(\"[data-action=\\\"edit-title-settings\\\"]\").click()");
+        waitUntil("document.getElementById('title-settings-form')!==null");
+        runJs("var f=document.getElementById('title-settings-form');f.querySelector('[name=titleColorMode][value=custom]').checked=true;f.elements.titleColor.value='#a123d0';f.elements.subtitleColor.value='#137449'");
+        runJs("document.querySelector(\"#title-settings-form [data-action=\\\"save-form\\\"]\").click()");
+        waitUntil("!document.getElementById('sheet').open");
+        assertEquals("true", evaluate("Boolean(getComputedStyle(document.querySelector('.brand h1')).color==='rgb(161, 35, 208)'&&Number(getComputedStyle(document.querySelector('.brand p')).fontWeight)>=700)"));
+        runJs("document.querySelector(\"[data-action=\\\"set-theme\\\"][data-theme=\\\"aurora\\\"]\").click()");
+        waitUntil("document.documentElement.dataset.theme==='aurora'");
+        assertEquals("true", evaluate("Boolean(getComputedStyle(document.querySelector('.brand h1')).color==='rgb(161, 35, 208)')"));
+        runJs("document.querySelector(\"[data-action=\\\"edit-tag-style\\\"]\").click()");
+        waitUntil("document.getElementById('tag-style-form')!==null");
+        runJs("var f=document.getElementById('tag-style-form');f.querySelector('[name=style][value=custom]').checked=true;f.elements.customColor.value='#c28cff'");
+        runJs("document.querySelector(\"#tag-style-form [data-action=\\\"save-form\\\"]\").click()");
+        waitUntil("!document.getElementById('sheet').open");
+        assertEquals("true", evaluate("Boolean(getComputedStyle(document.querySelector('.tag-settings-row .tag')).backgroundColor==='rgb(194, 140, 255)')"));
+        runJs("document.querySelector(\"[data-action=\\\"edit-title-settings\\\"]\").click()");
+        waitUntil("document.getElementById('title-settings-form')!==null");
+        runJs("document.querySelector('[name=titleColorMode][value=theme]').checked=true");
+        runJs("document.querySelector(\"#title-settings-form [data-action=\\\"save-form\\\"]\").click()");
+        waitUntil("!document.getElementById('sheet').open");
+        runJs("var s=JSON.parse(AndroidBridge.loadState()),d=RenjiLogic.createDemoState();s.people=d.people;s.events=d.events;s.loans=d.loans;for(var i=0;i<7;i++){s.journal.push({id:'summary_'+i,kind:'todo',title:'近期計畫 '+(i+1),content:'待辦驗收',date:'2026-09-16',dueAt:new Date(Date.now()+(i+2)*3600000).toISOString(),completed:false,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()})}AndroidBridge.saveState(JSON.stringify(s));location.reload()");
+        waitUntil("document.querySelectorAll('.upcoming-row').length===5");
+        assertEquals("true", evaluate("Boolean(document.documentElement.dataset.theme==='aurora')"));
+        assertEquals("true", evaluate("Boolean(getComputedStyle(document.querySelector('.quick-tags .tag-filter')).backgroundColor==='rgb(194, 140, 255)')"));
+        screenshot("v120-people-aurora");
+        runJs("document.querySelector(\"[data-action=\\\"nav\\\"][data-view=\\\"journal\\\"]\").click()");
+        screenshot("v120-journal-aurora");
+        runJs("Array.from(document.querySelectorAll('.journal-open')).find(function(e){return e.innerText.indexOf('咖啡靈感')>=0}).click()");
+        waitUntil("document.querySelector('[data-action=delete-journal]')!==null");
+        runJs("document.querySelector(\"[data-action=\\\"delete-journal\\\"]\").click()");
+        waitUntil("document.getElementById('confirm-dialog').open");
+        runJs("document.querySelector(\"[data-action=\\\"confirm-accept\\\"]\").click()");
+        waitUntil("!document.getElementById('sheet').open");
+        assertEquals("true", evaluate("Boolean(!JSON.parse(AndroidBridge.loadState()).journal.some(function(x){return x.title==='咖啡靈感'}))"));
+        runJs("document.querySelector(\"[data-action=\\\"nav\\\"][data-view=\\\"loans\\\"]\").click()");
+        runJs("document.querySelector(\"[data-action=\\\"show-loan\\\"]\").click()");
+        waitUntil("document.querySelector('.transaction-item')!==null");
+        assertEquals("true", evaluate("Boolean(document.querySelector('[data-action=waive-loan]')===null)"));
+        pressVisibleElement(".transaction-item h4", 900);
+        waitUntil("document.querySelector('.sheet-title').innerText==='還款／歸還紀錄'");
+        android.os.SystemClock.sleep(850);
+        screenshot("v120-repayment-longpress");
+        runJs("document.querySelector(\"[data-action=\\\"edit-transaction\\\"]\").click()");
+        waitUntil("document.getElementById('transaction-form')!==null");
+        runJs("document.getElementById('transaction-form').elements.value.value='2500'");
+        runJs("document.querySelector(\"#transaction-form [data-action=\\\"save-form\\\"]\").click()");
+        waitUntil("document.getElementById('confirm-dialog').open");
+        runJs("document.querySelector(\"[data-action=\\\"confirm-accept\\\"]\").click()");
+        waitUntil("!document.getElementById('sheet').open");
+        assertEquals("true", evaluate("Boolean(RenjiLogic.personScore(JSON.parse(AndroidBridge.loadState()),'demo_wang')===58&&JSON.parse(AndroidBridge.loadState()).loans[0].transactions[0].amount===2500)"));
+        runJs("document.querySelector(\"[data-action=\\\"nav\\\"][data-view=\\\"events\\\"]\").click()");
+        runJs("document.querySelector(\"[data-action=\\\"primary-add\\\"]\").click()");
+        waitUntil("document.getElementById('event-form')!==null");
+        runJs("var f=document.getElementById('event-form');f.elements.title.value='照片全圖驗收';f.elements.deltaAmount.value='0';var files=[0,1].map(function(i){return new File(['<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"400\" height=\"1000\"><rect width=\"400\" height=\"1000\" fill=\"'+(i?'#b3ccec':'#d0b5d9')+'\"/><circle cx=\"200\" cy=\"500\" r=\"120\" fill=\"white\"/></svg>'],'完整照片'+i+'.svg',{type:'image/svg+xml'})});if(typeof DataTransfer==='function'){var dt=new DataTransfer();files.forEach(function(file){dt.items.add(file)});f.elements.attachments.files=dt.files}else{Object.defineProperty(f.elements.attachments,'files',{value:files})}");
+        runJs("document.querySelector(\"#event-form [data-action=\\\"save-form\\\"]\").click()");
+        waitUntil("!document.getElementById('sheet').open");
+        assertEquals("true", evaluate("Boolean(JSON.parse(AndroidBridge.loadState()).events.some(function(e){return e.title==='照片全圖驗收'&&e.attachments.length===2&&e.attachments[0].originalDataUrl.indexOf('data:image/svg+xml')===0}))"));
+        runJs("Array.from(document.querySelectorAll('.event-card')).find(function(x){return x.innerText.indexOf('照片全圖驗收')>=0}).click()");
+        waitUntil("document.querySelectorAll('.attachment-grid button').length===2");
+        runJs("document.querySelector(\".attachment-grid button\").click()");
+        waitUntil("document.getElementById('photo-viewer').open");
+        assertEquals("true", evaluate("Boolean(document.querySelectorAll('.gallery-scroll figure').length===2)"));
+        waitUntil("document.querySelector('.gallery-scroll').scrollHeight>document.querySelector('.gallery-scroll').clientHeight");
+        screenshot("v120-photo-gallery");
+        runJs("document.querySelector('.gallery-scroll').scrollTop=500");
+        assertEquals("true", evaluate("Boolean(document.querySelector('.gallery-scroll').scrollTop>100)"));
+        assertEquals("true", evaluate("Boolean(RenjiApp.handleBack())"));
+        assertEquals("true", evaluate("Boolean(!document.getElementById('photo-viewer').open&&document.getElementById('sheet').open)"));
+        runJs("document.querySelector(\"[data-action=\\\"close-sheet\\\"]\").click()");
+        tapVisibleElement("[data-role=brand-title]");
+        waitUntil("document.querySelector('[data-role=brand-title]').getAttribute('aria-label').indexOf('停止')>=0");
+        tapVisibleElement("[data-role=brand-title]");
+        waitUntil("document.querySelector('[data-role=brand-title]').getAttribute('aria-label').indexOf('點擊播放')>=0");
+        runJs("document.querySelector(\"[data-action=\\\"nav\\\"][data-view=\\\"settings\\\"]\").click()");
+        runJs("document.querySelector(\"[data-action=\\\"set-theme\\\"][data-theme=\\\"rainbow\\\"]\").click()");
+        waitUntil("document.documentElement.dataset.theme==='rainbow'");
+        runJs("document.querySelector(\"[data-action=\\\"nav\\\"][data-view=\\\"people\\\"]\").click()");
+        screenshot("v120-people-rainbow");
+        runJs("document.querySelector(\"[data-action=\\\"nav\\\"][data-view=\\\"journal\\\"]\").click()");
+        screenshot("v120-journal-rainbow");
+        runJs("document.querySelector(\"[data-action=\\\"nav\\\"][data-view=\\\"settings\\\"]\").click()");
+        runJs("document.querySelector(\"[data-action=\\\"clear-all\\\"]\").click()");
+        waitUntil("document.getElementById('confirm-dialog').open");
+        runJs("document.querySelector(\"[data-action=\\\"confirm-accept\\\"]\").click()");
+        waitUntil("!document.getElementById('confirm-dialog').open");
     }
 
     @Test

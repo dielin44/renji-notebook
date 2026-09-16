@@ -118,7 +118,7 @@ test('舊人物資料正規化後可保留並補入新欄位', () => {
     events: [],
     loans: []
   });
-  assert.equal(state.version, 3);
+  assert.equal(state.version, 4);
   assert.equal(state.people[0].zodiac, '雙子座');
   assert.equal(state.people[0].bloodType, 'AB');
   assert.equal(state.people[0].avatar.dataUrl, 'data:image/jpeg;base64,AA==');

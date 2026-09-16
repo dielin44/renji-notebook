@@ -8,7 +8,7 @@
   const sheetContent = document.getElementById('sheet-content');
   const confirmDialog = document.getElementById('confirm-dialog');
   const toastElement = document.getElementById('toast');
-  const APP_VERSION = '1.1.1';
+  const APP_VERSION = '1.2.0';
 
   let state = Logic.createDefaultState();
   let currentView = 'people';
@@ -20,17 +20,23 @@
   let brandPressTimer = null;
   let brandLongPressed = false;
   let brandPressStart = null;
+  let transactionPressTimer = null;
+  let transactionPressStart = null;
+  let suppressTransactionClickUntil = 0;
+  let galleryFocus = null;
   const introAudio = new Audio('audio/intro.m4a');
   introAudio.preload = 'auto';
 
   const filters = {
     people: { query: '', filter: 'all', categoryId: '', sort: 'scoreLow' },
+    journal: { query: '', filter: 'all' },
     loans: { query: '', filter: 'active' },
     events: { query: '', filter: 'all' }
   };
 
   const viewMeta = {
     people: { title: '人物', addLabel: '新增人物' },
+    journal: { title: '隨筆', addLabel: '新增隨筆或待辦' },
     loans: { title: '借貸帳本', addLabel: '新增借貸' },
     events: { title: '事件紀錄', addLabel: '新增事件' },
     settings: { title: '設定', addLabel: '新增人物' }
@@ -149,7 +155,7 @@
 
   function tagHtml(tag, variant) {
     const styleClass = variant ? '' : `tag-theme-${tagStyleKey(tag)}`;
-    return `<span class="tag ${variant || ''} ${styleClass}">${escapeHtml(tag)}</span>`;
+    return `<span class="tag ${variant || ''} ${styleClass}" ${variant ? '' : tagColorAttribute(tag)}>${escapeHtml(tag)}</span>`;
   }
 
   function scoreBadgeHtml(score, personId, compact) {
@@ -159,7 +165,7 @@
 
   function attachmentHtml(attachments) {
     if (!attachments || !attachments.length) return '';
-    return `<div class="attachment-grid">${attachments.map((item) => `<img src="${attribute(item.dataUrl)}" alt="${attribute(item.name || '附件')}" loading="lazy">`).join('')}</div>`;
+    return `<div class="attachment-grid">${attachments.map((item, index) => `<button type="button" data-action="view-attachments" data-photo-index="${index}" aria-label="查看照片 ${index + 1}"><img src="${attribute(item.dataUrl)}" data-original="${attribute(item.originalDataUrl || item.dataUrl)}" alt="${attribute(item.name || '附件')}" loading="lazy"></button>`).join('')}</div>`;
   }
 
   function directionLabel(loan) {
@@ -215,6 +221,7 @@
   function navHtml() {
     const items = [
       ['people', '♟', '人物'],
+      ['journal', '✎', '隨筆'],
       ['loans', '◉', '借貸'],
       ['events', '▤', '事件'],
       ['settings', '⚙', '設定']
@@ -232,12 +239,14 @@
   }
 
   function render() {
+    applyAppearance();
     if (!unlocked && state.settings.pinHash) {
       renderLockScreen();
       return;
     }
     let content = '';
     if (currentView === 'people') content = renderPeopleView();
+    if (currentView === 'journal') content = renderJournalView();
     if (currentView === 'loans') content = renderLoansView();
     if (currentView === 'events') content = renderEventsView();
     if (currentView === 'settings') content = renderSettingsView();
@@ -284,12 +293,12 @@
     return `<div class="quick-tag-head"><span>常用標籤</span><button class="text-link" data-action="edit-quick-tags">設定</button></div>
       <div class="chip-row quick-tags">${tags.map((tag) => {
         const filter = `tag:${tag}`;
-        return `<button class="chip tag-filter tag-theme-${tagStyleKey(tag)} ${filters.people.filter === filter ? 'active' : ''}" data-action="people-filter" data-filter="${attribute(filter)}">${escapeHtml(tag)}</button>`;
+        return `<button class="chip tag-filter tag-theme-${tagStyleKey(tag)} ${filters.people.filter === filter ? 'active' : ''}" ${tagColorAttribute(tag)} data-action="people-filter" data-filter="${attribute(filter)}">${escapeHtml(tag)}</button>`;
       }).join('') || '<span class="small-muted">尚未設定首頁常用標籤</span>'}</div>`;
   }
 
   function renderPeopleView() {
-    return `${summaryHtml()}${searchHtml('people', '搜尋姓名、事件、標籤、借貸')}${quickTagFiltersHtml()}${peopleFiltersHtml()}<div id="people-list">${renderPeopleListHtml()}</div>`;
+    return `${summaryHtml()}${upcomingTodosHtml()}${searchHtml('people', '搜尋姓名、事件、標籤、借貸')}${quickTagFiltersHtml()}${peopleFiltersHtml()}<div id="people-list">${renderPeopleListHtml()}</div>`;
   }
 
   function renderPeopleListHtml() {
@@ -479,6 +488,9 @@
     const inactiveCategories = state.settings.categories.filter((category) => category.active === false);
     return `
       <section class="settings-card">
+        <h3>外觀主題</h3><p>選擇後立即套用並保存。</p>${themeOptionsHtml()}
+      </section>
+      <section class="settings-card">
         <h3>評分設定</h3>
         <p>新增人物時預設從這個分數開始；既有人物不會被改動。</p>
         <div class="settings-line">
@@ -500,7 +512,7 @@
         <div class="settings-line"><strong>人物標籤</strong><button class="button secondary" data-action="add-tag">新增標籤</button></div>
         <p>可調整順序與外觀；炫彩樣式採靜態漸層與光暈，不會持續閃爍。</p>
         <div class="tag-settings-list">${state.settings.tags.map((tag, index) => `<div class="tag-settings-row">
-          <span class="tag tag-theme-${tagStyleKey(tag)}">${escapeHtml(tag)}</span>
+          <span class="tag tag-theme-${tagStyleKey(tag)}" ${tagColorAttribute(tag)}>${escapeHtml(tag)}</span>
           <span class="tag-row-actions">
             <button class="mini-button" data-action="move-tag" data-tag="${attribute(tag)}" data-direction="up" ${index === 0 ? 'disabled' : ''} aria-label="上移 ${attribute(tag)}">↑</button>
             <button class="mini-button" data-action="move-tag" data-tag="${attribute(tag)}" data-direction="down" ${index === state.settings.tags.length - 1 ? 'disabled' : ''} aria-label="下移 ${attribute(tag)}">↓</button>
@@ -513,7 +525,7 @@
 
       <section class="settings-card">
         <h3>首頁標題</h3>
-        <p>短按首頁標題播放原聲介紹；長按可修改主標題與副標題。</p>
+        <p>短按播放／停止原聲介紹；長按可修改主副標題及顏色。</p>
         <div class="settings-line"><strong>${escapeHtml(state.settings.appTitle)}</strong><span class="settings-value">${escapeHtml(state.settings.appSubtitle)}</span></div>
         <button class="button secondary full" data-action="edit-title-settings">修改首頁標題</button>
       </section>
@@ -531,7 +543,7 @@
 
       <section class="settings-card">
         <h3>資料與備份</h3>
-        <p>備份會包含人物、事件、借貸、附件與設定。換手機前務必匯出。</p>
+        <p>備份會包含人物、隨筆、待辦、事件、借貸、照片與外觀設定。換手機前務必匯出。</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
           <button class="button primary" data-action="export-backup">匯出備份</button>
           <button class="button secondary" data-action="import-backup">匯入備份</button>
@@ -634,7 +646,7 @@
         <div class="field"><span>自訂人物資料</span><small>新增或改名後，所有人物會共用這些欄位；內容各自填寫。</small></div>
         <div class="custom-fields" data-custom-fields>${Logic.customFieldsFor(state, item).map(customFieldRowHtml).join('')}</div>
         <button type="button" class="button secondary full" data-action="add-custom-field">＋ 新增自訂欄位</button>
-        <div class="field"><span>常用標籤</span><div class="check-list">${state.settings.tags.map((tag) => `<label class="check-chip tag-theme-${tagStyleKey(tag)}"><input type="checkbox" name="tags" value="${attribute(tag)}" ${selectedTags.has(tag) ? 'checked' : ''}><span>${escapeHtml(tag)}</span></label>`).join('')}</div></div>
+        <div class="field"><span>常用標籤</span><div class="check-list">${state.settings.tags.map((tag) => `<label class="check-chip tag-theme-${tagStyleKey(tag)}" ${tagColorAttribute(tag)}><input type="checkbox" name="tags" value="${attribute(tag)}" ${selectedTags.has(tag) ? 'checked' : ''}><span>${escapeHtml(tag)}</span></label>`).join('')}</div></div>
         <label class="field"><span>其他標籤</span><input name="customTags" value="${attribute(customTags.join('、'))}" placeholder="以逗號或頓號分隔"></label>
         <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">${editing ? '儲存修改' : '建立人物'}</button></div>
       </form>`;
@@ -707,7 +719,7 @@
           <label class="choice"><input type="checkbox" name="important" ${item.important ? 'checked' : ''}><span>重要事件</span></label>
           <label class="choice"><input type="checkbox" name="followUp" ${item.followUp ? 'checked' : ''}><span>需要後續觀察</span></label>
         </div>
-        <label class="field"><span>新增照片證據</span><input name="attachments" type="file" accept="image/*" multiple data-role="attachment-input"><small>每次最多 3 張，會壓縮後保存在本機。</small><strong class="attachment-status" data-attachment-status aria-live="polite"></strong></label>
+        <label class="field"><span>新增照片證據</span><input name="attachments" type="file" accept="image/*" multiple data-role="attachment-input"><small>每次最多 3 張，保留原圖並建立縮圖，可點擊放大。</small><strong class="attachment-status" data-attachment-status aria-live="polite"></strong></label>
         ${attachmentHtml(item.attachments)}
         <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">${editing ? '儲存修改' : '儲存事件'}</button></div>
       </form>`;
@@ -768,7 +780,7 @@
           <label class="choice full"><input type="checkbox" name="reminderEnabled" ${item.reminderEnabled ? 'checked' : ''}><span>到期日上午 9:00 左右提醒</span></label>
           <label class="field full"><span>備註</span><textarea name="note" maxlength="3000" placeholder="原因、付款方式、歸還約定等">${escapeHtml(item.note)}</textarea></label>
         </div>
-        <label class="field"><span>新增照片／截圖</span><input name="attachments" type="file" accept="image/*" multiple data-role="attachment-input"><small>每次最多 3 張，會壓縮後保存在本機。</small><strong class="attachment-status" data-attachment-status aria-live="polite"></strong></label>
+        <label class="field"><span>新增照片／截圖</span><input name="attachments" type="file" accept="image/*" multiple data-role="attachment-input"><small>每次最多 3 張，保留原圖並建立縮圖，可點擊放大。</small><strong class="attachment-status" data-attachment-status aria-live="polite"></strong></label>
         ${attachmentHtml(item.attachments)}
         ${editing && item.transactions && item.transactions.length ? '<div class="notice">修改原始金額或數量時，既有還款／歸還紀錄仍會保留。</div>' : ''}
         <div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">${editing ? '儲存修改' : '建立借貸'}</button></div>
@@ -795,14 +807,13 @@
       </div>
       ${loan.note ? `<div class="detail-card" style="margin-top:12px"><h3>備註</h3><p class="event-detail">${escapeHtml(loan.note)}</p></div>` : ''}
       ${attachmentHtml(loan.attachments)}
-      <div class="section-head"><h3 class="section-title">${isItem ? '歸還紀錄' : '還款紀錄'}</h3></div>
-      ${(loan.transactions || []).length ? `<div class="timeline">${loan.transactions.slice().sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt)).map((transaction) => `<div class="timeline-item positive transaction-item"><div><h4>${isItem ? `歸還 ${money(transaction.quantity)} 件` : `還款 $${money(transaction.amount)}`}</h4><span class="small-muted">${dateText(transaction.occurredAt, true)}</span>${transaction.note ? `<p>${escapeHtml(transaction.note)}</p>` : ''}${transaction.returnCondition ? `<p class="small-muted">歸還狀況：${escapeHtml(transaction.returnCondition)}</p>` : ''}</div><div class="transaction-actions"><button class="text-link" data-action="edit-transaction" data-loan-id="${attribute(loan.id)}" data-transaction-id="${attribute(transaction.id)}">修改</button><button class="text-link danger-text" data-action="delete-transaction" data-loan-id="${attribute(loan.id)}" data-transaction-id="${attribute(transaction.id)}">刪除</button></div></div>`).join('')}</div>` : '<div class="small-muted">尚無歸還紀錄</div>'}
+      <div class="section-head"><h3 class="section-title">${isItem ? '歸還紀錄' : '還款紀錄'}</h3><span class="small-muted">長按紀錄可修改／刪除</span></div>
+      ${(loan.transactions || []).length ? `<div class="timeline">${loan.transactions.slice().sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt)).map((transaction) => `<div class="timeline-item positive transaction-item" role="button" tabindex="0" aria-label="長按或按 Enter 修改還款紀錄" data-loan-id="${attribute(loan.id)}" data-transaction-id="${attribute(transaction.id)}"><div><h4>${isItem ? `歸還 ${money(transaction.quantity)} 件` : `還款 $${money(transaction.amount)}`}</h4><span class="small-muted">${dateText(transaction.occurredAt, true)}</span>${transaction.note ? `<p>${escapeHtml(transaction.note)}</p>` : ''}${transaction.returnCondition ? `<p class="small-muted">歸還狀況：${escapeHtml(transaction.returnCondition)}</p>` : ''}</div><div class="transaction-actions"><button class="text-link" data-action="edit-transaction" data-loan-id="${attribute(loan.id)}" data-transaction-id="${attribute(transaction.id)}">修改</button><button class="text-link danger-text" data-action="delete-transaction" data-loan-id="${attribute(loan.id)}" data-transaction-id="${attribute(transaction.id)}">刪除</button></div></div>`).join('')}</div>` : '<div class="small-muted">尚無歸還紀錄</div>'}
       <div class="card-actions" style="margin-top:17px">
-        ${!['settled', 'waived'].includes(status) ? `<button class="action-button" data-action="add-transaction" data-loan-id="${attribute(loan.id)}">${isItem ? '記錄歸還' : '記錄還款'}</button>` : '<button class="action-button" disabled>已完成</button>'}
+        ${!['settled', 'waived'].includes(status) ? `<button class="action-button repay-button" data-action="add-transaction" data-loan-id="${attribute(loan.id)}">${isItem ? '記錄歸還' : '記錄還款'}</button>` : '<button class="action-button" disabled>已完成</button>'}
         <button class="action-button" data-action="edit-loan" data-loan-id="${attribute(loan.id)}">修改</button>
         <button class="action-button" data-action="export-statement" data-loan-id="${attribute(loan.id)}">匯出對帳</button>
       </div>
-      ${!['settled', 'waived'].includes(status) ? `<button class="button secondary full" style="margin-top:9px" data-action="waive-loan" data-loan-id="${attribute(loan.id)}">免除／不再追蹤</button>` : ''}
       <button class="button danger full" style="margin-top:9px" data-action="delete-loan" data-loan-id="${attribute(loan.id)}">刪除借貸</button>`;
   }
 
@@ -867,7 +878,7 @@
 
   function quickTagsFormHtml() {
     const selected = new Set(state.settings.quickTags || []);
-    return `${sheetHead('更換首頁常用標籤', '選擇要放在人物搜尋列下方的標籤，最多 6 個。')}<form id="quick-tags-form" class="form-stack"><div class="field"><span>首頁常用標籤</span><div class="check-list">${state.settings.tags.map((tag) => `<label class="check-chip tag-theme-${tagStyleKey(tag)}"><input type="checkbox" name="quickTags" value="${attribute(tag)}" ${selected.has(tag) ? 'checked' : ''}><span>${escapeHtml(tag)}</span></label>`).join('') || '<span class="small-muted">請先新增人物標籤</span>'}</div><small>可隨時更換，不會刪除人物身上的既有標籤。</small></div><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存常用標籤</button></div></form>`;
+    return `${sheetHead('更換首頁常用標籤', '選擇要放在人物搜尋列下方的標籤，最多 6 個。')}<form id="quick-tags-form" class="form-stack"><div class="field"><span>首頁常用標籤</span><div class="check-list">${state.settings.tags.map((tag) => `<label class="check-chip tag-theme-${tagStyleKey(tag)}" ${tagColorAttribute(tag)}><input type="checkbox" name="quickTags" value="${attribute(tag)}" ${selected.has(tag) ? 'checked' : ''}><span>${escapeHtml(tag)}</span></label>`).join('') || '<span class="small-muted">請先新增人物標籤</span>'}</div><small>可隨時更換，不會刪除人物身上的既有標籤。</small></div><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存常用標籤</button></div></form>`;
   }
 
   function personNotesFormHtml(person) {
@@ -879,16 +890,17 @@
   }
 
   function titleSettingsFormHtml() {
-    return `${sheetHead('修改首頁標題', '只改 App 內首頁顯示，不會更改手機桌面上的 App 名稱。')}<form id="title-settings-form" class="form-stack"><label class="field"><span>主標題 *</span><input name="appTitle" required maxlength="30" value="${attribute(state.settings.appTitle)}" autofocus></label><label class="field"><span>副標題 *</span><input name="appSubtitle" required maxlength="60" value="${attribute(state.settings.appSubtitle)}"></label><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存標題</button></div></form>`;
+    return `${sheetHead('修改首頁標題', '只改 App 內首頁顯示，不會更改手機桌面上的 App 名稱。')}<form id="title-settings-form" class="form-stack"><label class="field"><span>主標題 *</span><input name="appTitle" required maxlength="30" value="${attribute(state.settings.appTitle)}" autofocus></label><label class="field"><span>副標題 *</span><input name="appSubtitle" required maxlength="60" value="${attribute(state.settings.appSubtitle)}"></label>${titleColorControlsHtml()}<div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存標題</button></div></form>`;
   }
 
   function tagStyleFormHtml(tag) {
+    const customColor = Logic.validColor((state.settings.tagColors || {})[tag], '');
     const styles = [
       ['normal', '經典', '沉穩單色'], ['aurora', '極光', '藍綠漸層'], ['neon', '霓虹', '紫粉光暈'],
       ['electric', '電光', '深藍紫與青光'], ['lava', '熔岩', '紅橘漸層'], ['ice', '冰晶', '銀藍冷光'], ['obsidian', '曜金', '黑金質感']
     ];
     const selected = tagStyleKey(tag);
-    return `${sheetHead(`${tag}｜標籤外觀`, '選擇靜態炫彩樣式，套用到人物卡與常用標籤。')}<form id="tag-style-form" class="form-stack"><input type="hidden" name="tag" value="${attribute(tag)}"><div class="tag-style-grid">${styles.map(([key, label, hint]) => `<label class="tag-style-choice"><input type="radio" name="style" value="${key}" ${selected === key ? 'checked' : ''}><span class="tag tag-theme-${key}">${escapeHtml(tag)}</span><strong>${label}</strong><small>${hint}</small></label>`).join('')}</div><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">套用外觀</button></div></form>`;
+    return `${sheetHead(`${tag}｜標籤外觀`, '選擇靜態炫彩樣式，套用到人物卡與常用標籤，也可自由選色。')}<form id="tag-style-form" class="form-stack"><input type="hidden" name="tag" value="${attribute(tag)}"><div class="tag-style-grid">${styles.map(([key, label, hint]) => `<label class="tag-style-choice"><input type="radio" name="style" value="${key}" ${!customColor && selected === key ? 'checked' : ''}><span class="tag tag-theme-${key}">${escapeHtml(tag)}</span><strong>${label}</strong><small>${hint}</small></label>`).join('')}</div><label class="choice"><input type="radio" name="style" value="custom" ${customColor ? 'checked' : ''}><span>自訂顏色</span></label><label class="field"><span>標籤顏色</span><input type="color" name="customColor" value="${customColor || '#c28cff'}" data-role="tag-color"></label><small class="small-muted">文字會自動使用黑色或白色，保持清楚。</small><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">套用外觀</button></div></form>`;
   }
 
   function pinFormHtml() {
@@ -904,7 +916,7 @@
 
   function playIntroAudio() {
     try {
-      introAudio.pause();
+      if (!introAudio.paused && !introAudio.ended) { introAudio.pause(); introAudio.currentTime = 0; updateAudioLabel(); return; }
       introAudio.currentTime = 0;
       const playback = introAudio.play();
       if (playback && typeof playback.catch === 'function') playback.catch(() => toast('原聲暫時無法播放'));
@@ -964,6 +976,10 @@
   }
 
   function updateVisibleList(view) {
+    if (view === 'journal') {
+      const target = document.getElementById('journal-list');
+      if (target) target.innerHTML = journalListHtml();
+    }
     if (view === 'people') {
       const target = document.getElementById('people-list');
       if (target) target.innerHTML = renderPeopleListHtml();
@@ -979,7 +995,8 @@
   }
 
   function openAddForCurrentView() {
-    if (currentView === 'loans') openSheet(loanFormHtml(null, ''));
+    if (currentView === 'journal') openSheet(journalFormHtml(null, 'note'));
+    else if (currentView === 'loans') openSheet(loanFormHtml(null, ''));
     else if (currentView === 'events') openSheet(eventFormHtml(null, ''));
     else openSheet(personFormHtml(null));
   }
@@ -990,6 +1007,7 @@
     const loanId = element.dataset.loanId || '';
     const transactionId = element.dataset.transactionId || '';
 
+    if (['close-gallery','view-attachments','add-journal','journal-filter','show-journal','edit-journal','set-theme','toggle-journal','delete-journal'].includes(action)) return handleNewAction(action, element);
     if (action === 'confirm-cancel') return finishConfirm(false);
     if (action === 'confirm-accept') return finishConfirm(true);
     if (action === 'save-form') {
@@ -1153,6 +1171,7 @@
       state.settings.tags = state.settings.tags.filter((tag) => tag !== removedTag);
       state.settings.quickTags = (state.settings.quickTags || []).filter((tag) => tag !== removedTag);
       if (state.settings.tagStyles) delete state.settings.tagStyles[removedTag];
+      if (state.settings.tagColors) delete state.settings.tagColors[removedTag];
       if (filters.people.filter === `tag:${removedTag}`) filters.people.filter = 'all';
       return persist('已從人物標籤移除', false);
     }
@@ -1205,16 +1224,6 @@
       updatePersonLoanTag(item.personId);
       return persist(item.kind === 'item' ? '歸還紀錄已刪除' : '還款紀錄已刪除');
     }
-    if (action === 'waive-loan') {
-      const item = loanById(loanId);
-      if (!item) return;
-      const accepted = await confirmAction('免除這筆借貸？', '剩餘金額或物品會標示為已免除，不再列入未結清與逾期統計。', '確認免除');
-      if (!accepted) return;
-      item.waived = true;
-      item.updatedAt = new Date().toISOString();
-      updatePersonLoanTag(item.personId);
-      return persist('借貸已標示為免除');
-    }
     if (action === 'export-statement') {
       const item = loanById(loanId);
       if (item) exportStatement(item);
@@ -1264,6 +1273,7 @@
 
   function handleClick(event) {
     lastInteractionAt = Date.now();
+    if (Date.now() < suppressTransactionClickUntil) { suppressTransactionClickUntil = 0; event.preventDefault(); return; }
     if (event.target.closest('[data-role="brand-title"]')) {
       event.preventDefault();
       if (!brandLongPressed) playIntroAudio();
@@ -1293,6 +1303,15 @@
   function handleChange(event) {
     lastInteractionAt = Date.now();
     const target = event.target;
+    if (target.name === 'titleColorMode') {
+      const custom = target.value === 'custom';
+      target.form.querySelector('[data-title-colors]').hidden = !custom;
+      return;
+    }
+    if (target.matches('[data-role="tag-color"]')) { target.form.querySelector('[name=style][value=custom]').checked = true; return; }
+    if (target.name === 'journalKind') {
+      target.form.querySelector('[data-todo-fields]').hidden = target.value !== 'todo'; return;
+    }
     if (target.matches('[data-role="people-category"]')) {
       filters.people.categoryId = target.value;
       filters.people.sort = target.value ? 'category' : 'scoreLow';
@@ -1392,6 +1411,7 @@
       button.textContent = '處理中…';
     }
     try {
+      if (formId === 'journal-form') await submitJournal(form);
       if (formId === 'person-form') await submitPerson(form);
       if (formId === 'event-form') await submitEvent(form);
       if (formId === 'loan-form') await submitLoan(form);
@@ -1617,6 +1637,9 @@
     if (!appTitle || !appSubtitle) throw new Error('主標題與副標題都不能留空');
     state.settings.appTitle = appTitle;
     state.settings.appSubtitle = appSubtitle;
+    state.settings.titleColorMode = data.get('titleColorMode') === 'custom' ? 'custom' : 'theme';
+    state.settings.titleColor = Logic.validColor(data.get('titleColor'), '#f5f7fa');
+    state.settings.subtitleColor = Logic.validColor(data.get('subtitleColor'), '#d9ad4a');
     await persist('首頁標題已更新');
   }
 
@@ -1625,9 +1648,12 @@
     const tag = String(data.get('tag') || '');
     const style = String(data.get('style') || 'normal');
     if (!state.settings.tags.includes(tag)) throw new Error('找不到這個標籤');
-    if (!Logic.TAG_STYLE_KEYS.includes(style)) throw new Error('無效的標籤外觀');
+    if (style !== 'custom' && !Logic.TAG_STYLE_KEYS.includes(style)) throw new Error('無效的標籤外觀');
+    if (!state.settings.tagColors) state.settings.tagColors = {};
+    if (style === 'custom') state.settings.tagColors[tag] = Logic.validColor(data.get('customColor'), '#c28cff');
+    else delete state.settings.tagColors[tag];
     if (!state.settings.tagStyles) state.settings.tagStyles = {};
-    state.settings.tagStyles[tag] = style;
+    state.settings.tagStyles[tag] = style === 'custom' ? 'normal' : style;
     await persist('標籤外觀已套用');
   }
 
@@ -1804,6 +1830,7 @@
             name: file.name || '照片.jpg',
             type: 'image/jpeg',
             dataUrl: canvas.toDataURL('image/jpeg', 0.78),
+            originalDataUrl: String(reader.result),
             createdAt: new Date().toISOString()
           });
         };
@@ -1902,11 +1929,192 @@
     });
   }
 
+  function applyAppearance() {
+    const root = document.documentElement;
+    root.dataset.theme = state.settings.theme || 'black';
+    root.style.colorScheme = ['ice', 'rainbow'].includes(root.dataset.theme) ? 'light' : 'dark';
+    const custom = state.settings.titleColorMode === 'custom';
+    root.style.setProperty('--title-color', custom ? state.settings.titleColor : 'var(--text)');
+    root.style.setProperty('--subtitle-color', custom ? state.settings.subtitleColor : 'var(--gold)');
+    document.querySelector('meta[name="theme-color"]').content = getComputedStyle(root).getPropertyValue('--bg').trim();
+    document.querySelector('meta[name="color-scheme"]').content = root.style.colorScheme;
+  }
+
+  function themeOptionsHtml() {
+    return `<div class="theme-grid">${Logic.THEMES.map(([id, name, hint]) => `<button class="theme-option ${state.settings.theme === id ? 'selected' : ''}" data-action="set-theme" data-theme="${id}" aria-pressed="${state.settings.theme === id}"><span class="theme-swatch swatch-${id}" aria-hidden="true"><i></i><i></i><i></i></span><strong>${name}${state.settings.theme === id ? ' ✓' : ''}</strong><small>${hint}</small></button>`).join('')}</div>`;
+  }
+
+  function tagColorAttribute(tag) {
+    const color = Logic.validColor((state.settings.tagColors || {})[tag], '');
+    return color ? `style="background:${color} !important;color:${Logic.contrastText(color)} !important;border-color:${color} !important;box-shadow:none !important"` : '';
+  }
+
+  function titleColorControlsHtml() {
+    const custom = state.settings.titleColorMode === 'custom';
+    return `<div class="field"><span>標題配色</span><div class="choice-grid"><label class="choice"><input type="radio" name="titleColorMode" value="theme" ${custom ? '' : 'checked'}><span>跟隨主題</span></label><label class="choice"><input type="radio" name="titleColorMode" value="custom" ${custom ? 'checked' : ''}><span>自訂顏色</span></label></div></div><div class="form-grid" data-title-colors ${custom ? '' : 'hidden'}><label class="field"><span>主標題顏色</span><input type="color" name="titleColor" value="${state.settings.titleColor}"></label><label class="field"><span>副標題顏色</span><input type="color" name="subtitleColor" value="${state.settings.subtitleColor}"></label></div>`;
+  }
+
+  function journalStatusLabel(item) {
+    return { note: '隨手筆記', pending: '待辦', upcoming: '即將到期', overdue: '已逾期', done: '已完成' }[Logic.journalStatus(item)];
+  }
+
+  function upcomingTodosHtml() {
+    const items = Logic.upcomingTodos(state);
+    if (!items.length) return '';
+    return `<section class="settings-card upcoming-section"><div class="section-head"><h3 class="section-title">近期待辦</h3><button class="text-link" data-action="nav" data-view="journal">查看隨筆</button></div><p class="small-muted">3 天內未過期 · 最多 5 筆</p>${items.map((item) => `<button class="upcoming-row" data-action="show-journal" data-journal-id="${attribute(item.id)}"><strong>${escapeHtml(item.title)}</strong><time>${dateText(item.dueAt, true)}</time><span aria-hidden="true">›</span></button>`).join('')}</section>`;
+  }
+
+  function renderJournalView() {
+    return `<div class="journal-intro"><strong>留住靈感，也記得要做的事。</strong><p>隨手筆記與待辦獨立保存。</p></div><div class="journal-add-actions"><button class="button primary" data-action="add-journal" data-kind="note">＋ 隨手筆記</button><button class="button secondary" data-action="add-journal" data-kind="todo">＋ 待辦</button></div>${searchHtml('journal', '搜尋隨手筆記與待辦內容')}<div class="chip-row">${[['all','全部'],['note','隨手筆記'],['todo','待辦'],['pending','未完成'],['done','已完成']].map(([key,label]) => `<button class="chip ${filters.journal.filter === key ? 'active' : ''}" data-action="journal-filter" data-filter="${key}">${label}</button>`).join('')}</div><div id="journal-list">${journalListHtml()}</div>`;
+  }
+
+  function journalListHtml() {
+    const items = Logic.filterJournal(state, filters.journal);
+    if (!items.length) return '<div class="empty-state"><span class="empty-icon">✎</span><h2>留一頁給自己</h2><p>新增隨手筆記或待辦，也可以調整搜尋條件。</p></div>';
+    return `<div class="list-stack">${items.map((item) => `<article class="journal-card status-${Logic.journalStatus(item)}"><button class="journal-open" data-action="show-journal" data-journal-id="${attribute(item.id)}"><span class="journal-status">${journalStatusLabel(item)}</span><h3>${escapeHtml(item.title)}</h3>${item.content ? `<p>${escapeHtml(item.content)}</p>` : ''}<div class="small-muted">${item.kind === 'todo' && item.dueAt ? `截止 ${dateText(item.dueAt, true)}` : dateText(item.date, false)}</div></button>${item.kind === 'todo' ? `<button class="journal-complete" data-action="toggle-journal" data-journal-id="${attribute(item.id)}" aria-pressed="${item.completed}">${item.completed ? '✓ 已完成 · 恢復待辦' : '○ 標記完成'}</button>` : ''}</article>`).join('')}</div>`;
+  }
+
+  function journalFormHtml(item, kind) {
+    const editing = Boolean(item);
+    const entry = item || { id: '', kind: kind || 'note', title: '', content: '', date: localDateValue(null, false), dueAt: '', completed: false };
+    return `${sheetHead(editing ? '修改隨筆' : '新增隨筆', '筆記與待辦不需要綁定人物。')}<form id="journal-form" class="form-stack"><input type="hidden" name="recordId" value="${attribute(entry.id)}"><div class="choice-grid"><label class="choice"><input type="radio" name="journalKind" value="note" ${entry.kind === 'note' ? 'checked' : ''}><span>隨手筆記</span></label><label class="choice"><input type="radio" name="journalKind" value="todo" ${entry.kind === 'todo' ? 'checked' : ''}><span>待辦</span></label></div><label class="field"><span>標題 *</span><input name="title" required maxlength="100" value="${attribute(entry.title)}" placeholder="想記下什麼？" autofocus></label><label class="field"><span>內容</span><textarea name="content" rows="7" maxlength="20000" placeholder="想法、日常，或要完成的事情…">${escapeHtml(entry.content)}</textarea></label><label class="field"><span>日期 *</span><input name="date" type="date" required value="${attribute(entry.date || localDateValue(null, false))}"></label><div data-todo-fields ${entry.kind === 'todo' ? '' : 'hidden'}><label class="field"><span>截止時間</span><input name="dueAt" type="datetime-local" value="${entry.dueAt ? attribute(localDateValue(entry.dueAt, true)) : ''}"><small>3 天內顯示即將到期；超過截止時間標示已逾期。</small></label><label class="choice"><input type="checkbox" name="completed" ${entry.completed ? 'checked' : ''}><span>已完成</span></label></div><div class="form-actions"><button type="button" class="button secondary" data-action="close-sheet">取消</button><button class="button primary" type="button" data-action="save-form">儲存隨筆</button></div></form>`;
+  }
+
+  function journalDetailHtml(item) {
+    return `${sheetHead(item.title, `${item.kind === 'todo' ? '待辦' : '隨手筆記'}｜${dateText(item.date, false)}`)}<div class="journal-card status-${Logic.journalStatus(item)}"><span class="journal-status">${journalStatusLabel(item)}</span><p class="event-detail">${escapeHtml(item.content || '未填寫內容')}</p>${item.kind === 'todo' ? `<p class="small-muted">截止：${item.dueAt ? dateText(item.dueAt, true) : '未設定'}</p>` : ''}<p class="small-muted">更新：${dateText(item.updatedAt, true)}</p></div>${item.kind === 'todo' ? `<button class="button primary full" style="margin-top:14px" data-action="toggle-journal" data-journal-id="${attribute(item.id)}" data-detail="true">${item.completed ? '恢復待辦' : '標記完成'}</button>` : ''}<div class="form-actions"><button class="button secondary" data-action="edit-journal" data-journal-id="${attribute(item.id)}">修改</button><button class="button danger" data-action="delete-journal" data-journal-id="${attribute(item.id)}">刪除</button></div>`;
+  }
+
+  async function submitJournal(form) {
+    const data = new FormData(form);
+    const id = String(data.get('recordId') || '');
+    const existing = state.journal.find((item) => item.id === id);
+    const title = String(data.get('title') || '').trim();
+    if (!title) throw new Error('請填寫標題');
+    const kind = data.get('journalKind') === 'todo' ? 'todo' : 'note';
+    const dueAt = String(data.get('dueAt') || '');
+    if (kind === 'todo' && dueAt && !Number.isFinite(new Date(dueAt).getTime())) throw new Error('截止時間無效');
+    const stamp = new Date().toISOString();
+    const item = { id: existing ? existing.id : Logic.uid('journal'), kind, title,
+      content: String(data.get('content') || '').trim(), date: String(data.get('date') || ''),
+      dueAt: kind === 'todo' ? dueAt : '', completed: kind === 'todo' && data.get('completed') === 'on',
+      createdAt: existing ? existing.createdAt : stamp, updatedAt: stamp };
+    if (existing) state.journal[state.journal.indexOf(existing)] = item;
+    else state.journal.push(item);
+    await persist('隨筆已儲存');
+  }
+
+  async function handleNewAction(action, element) {
+    if (action === 'close-gallery') { closeGallery(); return true; }
+    if (action === 'view-attachments') {
+      const photos = Array.from(element.closest('.attachment-grid').querySelectorAll('img')).map((img) => ({ dataUrl: img.dataset.original || img.src, name: img.alt }));
+      openGallery(photos, Number(element.dataset.photoIndex) || 0); return true;
+    }
+    if (action === 'add-journal') { openSheet(journalFormHtml(null, element.dataset.kind)); return true; }
+    if (action === 'journal-filter') { filters.journal.filter = element.dataset.filter; render(); return true; }
+    const item = state.journal.find((entry) => entry.id === element.dataset.journalId);
+    if (action === 'show-journal' || action === 'edit-journal') {
+      if (item) openSheet(action === 'show-journal' ? journalDetailHtml(item) : journalFormHtml(item)); return true;
+    }
+    if (!['set-theme', 'toggle-journal', 'delete-journal'].includes(action)) return false;
+    const snapshot = Logic.deepClone(state);
+    try {
+      if (action === 'set-theme') {
+        if (!Logic.THEMES.some(([key]) => key === element.dataset.theme)) return true;
+        state.settings.theme = element.dataset.theme;
+        await persist('主題已保存', false);
+      }
+      if (action === 'toggle-journal' && item) {
+        item.completed = !item.completed; item.updatedAt = new Date().toISOString();
+        await persist(item.completed ? '待辦已完成' : '已恢復待辦', false);
+        if (element.dataset.detail) openSheet(journalDetailHtml(item));
+      }
+      if (action === 'delete-journal' && item) {
+        if (!await confirmAction('刪除這則隨筆？', `「${item.title}」刪除後無法復原。`, '刪除')) return true;
+        state.journal = state.journal.filter((entry) => entry.id !== item.id);
+        await persist('隨筆已刪除');
+      }
+    } catch (error) { state = Logic.normalizeState(snapshot); render(); throw error; }
+    return true;
+  }
+
+  function openGallery(photos, index) {
+    const dialog = document.getElementById('photo-viewer');
+    galleryFocus = document.activeElement;
+    dialog.innerHTML = `<header class="gallery-head"><div><strong>照片 ${index + 1}／${photos.length}</strong><small>上下滑動瀏覽完整照片</small></div><button class="sheet-close" data-action="close-gallery" aria-label="關閉照片">×</button></header><div class="gallery-scroll">${photos.map((item, i) => `<figure id="gallery-photo-${i}"><img src="${attribute(item.dataUrl)}" alt="${attribute(item.name || `照片 ${i + 1}`)}"><figcaption>${i + 1}／${photos.length} · ${escapeHtml(item.name || '照片')}</figcaption></figure>`).join('')}</div>`;
+    dialog.showModal();
+    requestAnimationFrame(() => {
+      const target = dialog.querySelector(`#gallery-photo-${index}`);
+      if (target) dialog.querySelector('.gallery-scroll').scrollTop = target.offsetTop - dialog.querySelector('.gallery-scroll').offsetTop;
+    });
+  }
+
+  function closeGallery() {
+    const dialog = document.getElementById('photo-viewer');
+    if (dialog.open) dialog.close();
+  }
+
+  function openTransactionActions(row) {
+    const loan = loanById(row.dataset.loanId);
+    const transaction = loan && loan.transactions.find((entry) => entry.id === row.dataset.transactionId);
+    if (!loan || !transaction) return;
+    const attrs = `data-loan-id="${attribute(loan.id)}" data-transaction-id="${attribute(transaction.id)}"`;
+    openSheet(`${sheetHead('還款／歸還紀錄', dateText(transaction.occurredAt, true))}<div class="detail-card"><h3>${loan.kind === 'item' ? `歸還 ${money(transaction.quantity)} 件` : `還款 $${money(transaction.amount)}`}</h3><p>${escapeHtml(transaction.note || '未填寫備註')}</p></div><div class="form-actions"><button class="button primary" data-action="edit-transaction" ${attrs}>修改</button><button class="button danger" data-action="delete-transaction" ${attrs}>刪除</button></div><button class="button secondary full" data-action="show-loan" data-loan-id="${attribute(loan.id)}">返回借貸明細</button>`);
+  }
+
+  function cancelTransactionPress() { clearTimeout(transactionPressTimer); transactionPressTimer = null; }
+
+  document.addEventListener('pointerdown', (event) => {
+    const row = event.target.closest('.transaction-item');
+    if (!row || event.target.closest('button')) return;
+    cancelTransactionPress();
+    transactionPressStart = { x: event.clientX, y: event.clientY };
+    transactionPressTimer = setTimeout(() => {
+      transactionPressTimer = null;
+      suppressTransactionClickUntil = Date.now() + 800;
+      openTransactionActions(row);
+    }, 650);
+  });
+  document.addEventListener('pointermove', (event) => {
+    if (transactionPressTimer && transactionPressStart && Math.hypot(event.clientX - transactionPressStart.x, event.clientY - transactionPressStart.y) > 10) cancelTransactionPress();
+  }, { passive: true });
+  document.addEventListener('pointerup', cancelTransactionPress);
+  document.addEventListener('pointercancel', cancelTransactionPress);
+  document.addEventListener('contextmenu', (event) => {
+    if (event.target.closest('.transaction-item')) event.preventDefault();
+  });
+  document.addEventListener('keydown', (event) => {
+    const row = event.target.closest('.transaction-item');
+    if (row && event.target === row && ['Enter', ' '].includes(event.key)) { event.preventDefault(); openTransactionActions(row); }
+  });
+  function updateAudioLabel() {
+    const brand = document.querySelector('[data-role="brand-title"]');
+    if (brand) brand.setAttribute('aria-label', `${introAudio.paused ? '點擊播放介紹' : '點擊停止播放'}，長按修改標題`);
+  }
+  introAudio.addEventListener('play', updateAudioLabel);
+  introAudio.addEventListener('pause', updateAudioLabel);
+  introAudio.addEventListener('ended', updateAudioLabel);
+  document.getElementById('photo-viewer').addEventListener('close', () => {
+    if (galleryFocus && document.contains(galleryFocus)) galleryFocus.focus();
+    galleryFocus = null;
+    document.getElementById('photo-viewer').innerHTML = '';
+  });
+  setInterval(() => {
+    if (!unlocked || document.hidden || sheet.open || document.getElementById('photo-viewer').open) return;
+    if (currentView === 'journal') updateVisibleList('journal');
+    if (currentView === 'people') {
+      const old = document.querySelector('.upcoming-section');
+      const html = upcomingTodosHtml();
+      if (old) old.outerHTML = html;
+      else if (html) document.querySelector('.summary-grid').insertAdjacentHTML('afterend', html);
+    }
+  }, 60000);
+
   function renderLockScreen() {
     app.innerHTML = `<main class="lock-screen"><img src="icons/icon-192.png" alt="人際小本本"><h1>${escapeHtml(state.settings.appTitle)}</h1><p>輸入 PIN 查看人際紀錄</p><form id="unlock-form" class="form-stack"><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" maxlength="8" aria-label="PIN" autofocus><button class="button primary" type="button" data-action="save-form">解鎖</button></form></main>`;
   }
 
   function handleBack() {
+    if (document.getElementById('photo-viewer').open) { closeGallery(); return true; }
     if (confirmDialog.open) {
       finishConfirm(false);
       return true;

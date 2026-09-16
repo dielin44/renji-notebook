@@ -1,8 +1,9 @@
-const CACHE_NAME = 'renji-notebook-v1.1.1';
+const CACHE_NAME = 'renji-notebook-v1.2.0';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
+  './themes.css',
   './logic.js',
   './storage.js',
   './app.js',

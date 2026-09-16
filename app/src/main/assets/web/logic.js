@@ -24,11 +24,28 @@
   const ZODIAC_SIGNS = ['牡羊座', '金牛座', '雙子座', '巨蟹座', '獅子座', '處女座', '天秤座', '天蠍座', '射手座', '摩羯座', '水瓶座', '雙魚座'];
 
   const TAG_STYLE_KEYS = ['normal', 'aurora', 'neon', 'electric', 'lava', 'ice', 'obsidian'];
+  const THEMES = [
+    ['black', '原始黑色', '經典黑金'], ['aurora', '極光流動', '藍綠光帶'],
+    ['neon', '霓虹夜色', '紫粉漸層'], ['electric', '電光星河', '靛藍與青光'],
+    ['lava', '日落熔岩', '莓紅與橘金'], ['ice', '冰晶銀藍', '銀白與冰藍'],
+    ['obsidian', '曜石金輝', '黑金光澤'], ['rainbow', '白底彩虹', '明亮繽紛']
+  ];
+
+  function validColor(value, fallback) {
+    return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value).toLowerCase() : fallback;
+  }
+
+  function contrastText(color) {
+    const hex = validColor(color, '#d9ad4a').slice(1);
+    const channels = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((n) => n <= 0.04045 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4));
+    return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722 > .179 ? '#101318' : '#ffffff';
+  }
 
   const MANAGED_FORM_IDS = [
     'person-form', 'event-form', 'loan-form', 'transaction-form',
     'category-form', 'tag-form', 'quick-tags-form', 'pin-form', 'unlock-form',
-    'person-notes-form', 'quality-settings-form', 'title-settings-form', 'tag-style-form'
+    'person-notes-form', 'quality-settings-form', 'title-settings-form', 'tag-style-form', 'journal-form'
   ];
 
   function nowIso() {
@@ -96,13 +113,18 @@
   function createDefaultState() {
     const stamp = nowIso();
     return {
-      version: 3,
+      version: 4,
       settings: {
         defaultStartScore: 80,
         categories: deepClone(DEFAULT_CATEGORIES),
         tags: ['同事', '朋友', '家人', '客戶', '需觀察', '可合作', '借貸中'],
         quickTags: ['同事', '朋友', '家人', '客戶'],
         tagStyles: {},
+        tagColors: {},
+        theme: 'black',
+        titleColorMode: 'theme',
+        titleColor: '#f5f7fa',
+        subtitleColor: '#d9ad4a',
         customFields: [],
         qualityLabel: '優質',
         qualityThreshold: 90,
@@ -116,6 +138,7 @@
       people: [],
       events: [],
       loans: [],
+      journal: [],
       meta: { createdAt: stamp, updatedAt: stamp }
     };
   }
@@ -124,11 +147,12 @@
     const base = createDefaultState();
     if (!input || typeof input !== 'object') return base;
     const state = {
-      version: 3,
+      version: 4,
       settings: Object.assign({}, base.settings, input.settings || {}),
       people: Array.isArray(input.people) ? input.people : [],
       events: Array.isArray(input.events) ? input.events : [],
       loans: Array.isArray(input.loans) ? input.loans : [],
+      journal: Array.isArray(input.journal) ? input.journal : [],
       meta: Object.assign({}, base.meta, input.meta || {})
     };
     state.settings.defaultStartScore = clampScore(state.settings.defaultStartScore);
@@ -162,6 +186,22 @@
     }
     state.settings.appTitle = String(state.settings.appTitle || '人際小本本').trim().slice(0, 30) || '人際小本本';
     state.settings.appSubtitle = String(state.settings.appSubtitle || '魔羯人際風控筆記｜INTJ').trim().slice(0, 60) || '魔羯人際風控筆記｜INTJ';
+    if (!THEMES.some(([id]) => id === state.settings.theme)) state.settings.theme = 'black';
+    state.settings.titleColorMode = state.settings.titleColorMode === 'custom' ? 'custom' : 'theme';
+    state.settings.titleColor = validColor(state.settings.titleColor, '#f5f7fa');
+    state.settings.subtitleColor = validColor(state.settings.subtitleColor, '#d9ad4a');
+    const colors = state.settings.tagColors || {};
+    state.settings.tagColors = {};
+    state.settings.tags.forEach((tag) => {
+      const color = validColor(colors[tag], '');
+      if (color) state.settings.tagColors[tag] = color;
+    });
+    state.journal = state.journal.filter((item) => item && typeof item === 'object').map((item) => ({
+      id: String(item.id || uid('journal')), kind: item.kind === 'todo' ? 'todo' : 'note',
+      title: String(item.title || ''), content: String(item.content || ''),
+      date: String(item.date || ''), dueAt: String(item.dueAt || ''),
+      completed: Boolean(item.completed), createdAt: item.createdAt || nowIso(), updatedAt: item.updatedAt || nowIso()
+    }));
     state.people = state.people.map((person) => Object.assign({
       id: uid('person'),
       name: '', nickname: '', phone: '', otherContact: '', relation: '',
@@ -228,6 +268,33 @@
       const stored = (person.customFields || []).find((entry) => entry.id === definition.id);
       return Object.assign({}, definition, { value: stored ? stored.value : '' });
     });
+  }
+
+  function journalStatus(item, now) {
+    const current = now == null ? Date.now() : new Date(now).getTime();
+    if (item.kind !== 'todo') return 'note';
+    if (item.completed) return 'done';
+    const due = item.dueAt ? new Date(item.dueAt).getTime() : NaN;
+    if (!Number.isFinite(due)) return 'pending';
+    if (due < current) return 'overdue';
+    return due <= current + 3 * 86400000 ? 'upcoming' : 'pending';
+  }
+
+  function upcomingTodos(state, now) {
+    return (state.journal || []).filter((item) => journalStatus(item, now) === 'upcoming')
+      .sort((a, b) => new Date(a.dueAt) - new Date(b.dueAt)).slice(0, 5);
+  }
+
+  function filterJournal(state, filters) {
+    const options = filters || {};
+    const query = String(options.query || '').trim().toLocaleLowerCase('zh-Hant');
+    return (state.journal || []).filter((item) => {
+      if (query && ![item.title, item.content, item.date, item.dueAt].join(' ').toLocaleLowerCase('zh-Hant').includes(query)) return false;
+      if (options.filter === 'note' || options.filter === 'todo') return item.kind === options.filter;
+      if (options.filter === 'pending') return item.kind === 'todo' && !item.completed;
+      if (options.filter === 'done') return item.kind === 'todo' && item.completed;
+      return true;
+    }).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   }
 
   function updateCustomFields(state, person, fields) {
@@ -494,6 +561,12 @@
     DEFAULT_CATEGORIES,
     SCORE_BANDS,
     TAG_STYLE_KEYS,
+    THEMES,
+    validColor,
+    contrastText,
+    journalStatus,
+    upcomingTodos,
+    filterJournal,
     ZODIAC_SIGNS,
     activeLoans,
     categoryScore,
