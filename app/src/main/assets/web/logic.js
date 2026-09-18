@@ -28,7 +28,12 @@
     ['black', '原始黑色', '經典黑金'], ['aurora', '極光流動', '藍綠光帶'],
     ['neon', '霓虹夜色', '紫粉漸層'], ['electric', '電光星河', '靛藍與青光'],
     ['lava', '日落熔岩', '莓紅與橘金'], ['ice', '冰晶銀藍', '銀白與冰藍'],
-    ['obsidian', '曜石金輝', '黑金光澤'], ['rainbow', '白底彩虹', '明亮繽紛']
+    ['obsidian', '曜石金輝', '黑金光澤'], ['rainbow', '晴空玫瑰', '粉紅與天藍'],
+    ['custom', '自訂顏色', '自由搭配三色'],
+    ['forest', '森林晨光', '翠綠・青藍・金黃'], ['coral', '珊瑚海岸', '珊瑚・碧綠・金黃'],
+    ['berry', '莓果花園', '莓紅・紫藤・薄荷'], ['ocean', '海洋日出', '深藍・青綠・橘黃'],
+    ['orchid', '蘭花月光', '紫藤・粉紅・冰藍'], ['citrus', '柑橘草原', '橘黃・草綠・天藍'],
+    ['ruby', '紅寶星光', '紅寶・金黃・靛藍']
   ];
 
   function validColor(value, fallback) {
@@ -187,6 +192,7 @@
     state.settings.appTitle = String(state.settings.appTitle || '人際小本本').trim().slice(0, 30) || '人際小本本';
     state.settings.appSubtitle = String(state.settings.appSubtitle || '魔羯人際風控筆記｜INTJ').trim().slice(0, 60) || '魔羯人際風控筆記｜INTJ';
     if (!THEMES.some(([id]) => id === state.settings.theme)) state.settings.theme = 'black';
+    state.settings.customThemeColors = ['#68d9c4', '#92baff', '#f4bb79'].map((fallback, i) => validColor((state.settings.customThemeColors || [])[i], fallback));
     state.settings.titleColorMode = state.settings.titleColorMode === 'custom' ? 'custom' : 'theme';
     state.settings.titleColor = validColor(state.settings.titleColor, '#f5f7fa');
     state.settings.subtitleColor = validColor(state.settings.subtitleColor, '#d9ad4a');
@@ -278,6 +284,19 @@
     if (!Number.isFinite(due)) return 'pending';
     if (due < current) return 'overdue';
     return due <= current + 3 * 86400000 ? 'upcoming' : 'pending';
+  }
+
+  function journalTone(item, now) {
+    if (item.kind !== 'todo') return 'note';
+    if (item.completed) return 'done';
+    const current = now == null ? Date.now() : new Date(now).getTime();
+    const due = item.dueAt ? new Date(item.dueAt).getTime() : NaN;
+    if (!Number.isFinite(due)) return 'pending';
+    const remaining = due - current;
+    if (remaining < 0) return 'overdue';
+    if (remaining < 86400000) return 'urgent';
+    if (remaining < 3 * 86400000) return 'soon';
+    return remaining < 30 * 86400000 ? 'month' : 'later';
   }
 
   function upcomingTodos(state, now) {
@@ -553,6 +572,23 @@
       transactions: [{ id: 'demo_payment_1', amount: 3000, occurredAt: '2026-08-02', note: '轉帳' }],
       reminderEnabled: true, waived: false, createdAt: '2026-07-15T12:00:00+08:00', updatedAt: '2026-08-02T12:00:00+08:00'
     });
+    const stamp = nowIso();
+    const dateAfter = (days) => new Date(Date.now() + days * 86400000).toISOString();
+    const samples = [
+      ['chen', '陳沛清', '讀書會朋友', '喜歡歷史與手沖咖啡，聚會偏好安靜的座位。聯絡前先確認方便的時間。', '討論下次讀書會', '一起整理閱讀筆記，約定各帶一段喜歡的文字分享。'],
+      ['liu', '劉星羽', '專案夥伴', '擅長整理簡報與攝影，溝通時喜歡先看清單。週末常安排戶外活動。', '完成活動分工', '確認場地、器材與交通安排，主動整理共用檢查清單。'],
+      ['guo', '郭文德', '鄰居', '喜歡園藝與料理，習慣事先約好時間。借用物品時會記下配件與歸還日期。', '分享陽台種植心得', '交換香草照顧方式，記下澆水頻率與日照位置，約好下週交流成果。']
+    ];
+    samples.forEach(([key, name, relation, notes, title, detail], i) => {
+      const id = `demo_${key}`;
+      state.people.push({ id, name, nickname: name.slice(1), phone: '', otherContact: '', relation, birthday: '', zodiac: '', bloodType: '', avatar: null, tags: ['朋友'], notes: `【虛構示範人物，與真實人物無關】${notes}`, customFields: [{ id: `${id}_field`, label: '聯絡偏好', value: ['平日晚間文字訊息', '先傳議程再約時間', '週末下午'][i] }], startScore: 80 + i * 3, categoryStarts: {}, createdAt: stamp, updatedAt: stamp });
+      [0, 1].forEach((n) => state.events.push({ id: `${id}_event_${n}`, personId: id, title: n ? '後續聯絡與確認' : title, detail: `【虛構示範】${n ? '已確認雙方時間，整理討論重點；下次聯絡時再詢問進度，不重複打擾。' : detail}`, delta: n ? 1 : 3, categoryIds: ['relationship'], important: !n, followUp: !!n, attachments: [], occurredAt: dateAfter(-i - n - 1), createdAt: stamp }));
+    });
+    state.journal.push(...[
+      ['讀書會前確認書單', .5, false], ['整理活動器材清單', 2, false], ['回覆聚餐時間', 10, false],
+      ['下季聚會規劃', 45, false], ['補寫上週交流筆記', -1, false], ['確認場地資訊', -2, true]
+    ].map(([title, days, completed], i) => ({ id: `demo_todo_${i}`, kind: 'todo', title, content: '【虛構示範】先整理需要確認的問題，聯絡後記下結果與下一步。', date: stamp.slice(0, 10), dueAt: dateAfter(days), completed, createdAt: stamp, updatedAt: stamp })));
+    state.journal.push({ id: 'demo_note', kind: 'note', title: '今天的人際觀察', content: '【虛構示範】\n好的交流不一定要很長，記得對方在意的小事就很有幫助。\n下次見面：詢問讀書進度、帶回借用的書，並分享這週的新發現。', date: stamp.slice(0, 10), dueAt: '', completed: false, createdAt: stamp, updatedAt: stamp });
     state.meta.updatedAt = nowIso();
     return state;
   }
@@ -565,6 +601,7 @@
     validColor,
     contrastText,
     journalStatus,
+    journalTone,
     upcomingTodos,
     filterJournal,
     ZODIAC_SIGNS,

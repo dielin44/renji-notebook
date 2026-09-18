@@ -4,14 +4,14 @@ plugins {
 
 android {
     namespace 'com.renji.notebook'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
-        applicationId 'com.renji.notebook'
+        applicationId 'com.renjinotbook.myapp'
         minSdk 26
-        targetSdk 35
-        versionCode 8
-        versionName '1.2.0'
+        targetSdk 36
+        versionCode 10
+        versionName '1.3.0'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 

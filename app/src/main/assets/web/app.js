@@ -8,7 +8,7 @@
   const sheetContent = document.getElementById('sheet-content');
   const confirmDialog = document.getElementById('confirm-dialog');
   const toastElement = document.getElementById('toast');
-  const APP_VERSION = '1.2.0';
+  const APP_VERSION = '1.3.0';
 
   let state = Logic.createDefaultState();
   let currentView = 'people';
@@ -24,6 +24,13 @@
   let transactionPressStart = null;
   let suppressTransactionClickUntil = 0;
   let galleryFocus = null;
+  let themePage = 0;
+  const triplePalettes = {
+    forest: ['#65d6a0', '#78c5ed', '#f3ce76'], coral: ['#ff9c98', '#6bdacb', '#f6d484'],
+    berry: ['#f3a0c5', '#baa5f5', '#80dcc1'], ocean: ['#82b6ff', '#6ddccf', '#ffc077'],
+    orchid: ['#c3a6ff', '#f6b0d3', '#92dbee'], citrus: ['#ffc479', '#b1dd83', '#87ccf2'],
+    ruby: ['#ff969e', '#efd181', '#a5b0ff']
+  };
   const introAudio = new Audio('audio/intro.m4a');
   introAudio.preload = 'auto';
 
@@ -1931,7 +1938,18 @@
 
   function applyAppearance() {
     const root = document.documentElement;
+    ['--gold', '--gold-bright', '--accent-2', '--accent-3', '--on-accent', '--app-art', '--line-gold'].forEach((key) => root.style.removeProperty(key));
     root.dataset.theme = state.settings.theme || 'black';
+    const palette = root.dataset.theme === 'custom' ? (state.settings.customThemeColors || ['#68d9c4', '#92baff', '#f4bb79']) : triplePalettes[root.dataset.theme];
+    if (palette) {
+      root.style.setProperty('--gold', palette[0]);
+      root.style.setProperty('--gold-bright', palette[0]);
+      root.style.setProperty('--accent-2', palette[1]);
+      root.style.setProperty('--accent-3', palette[2]);
+      root.style.setProperty('--on-accent', Logic.contrastText(palette[0]));
+      root.style.setProperty('--line-gold', palette[2]);
+      root.style.setProperty('--app-art', `linear-gradient(135deg,${palette[0]}20,${palette[1]}18,${palette[2]}20)`);
+    }
     root.style.colorScheme = ['ice', 'rainbow'].includes(root.dataset.theme) ? 'light' : 'dark';
     const custom = state.settings.titleColorMode === 'custom';
     root.style.setProperty('--title-color', custom ? state.settings.titleColor : 'var(--text)');
@@ -1941,7 +1959,11 @@
   }
 
   function themeOptionsHtml() {
-    return `<div class="theme-grid">${Logic.THEMES.map(([id, name, hint]) => `<button class="theme-option ${state.settings.theme === id ? 'selected' : ''}" data-action="set-theme" data-theme="${id}" aria-pressed="${state.settings.theme === id}"><span class="theme-swatch swatch-${id}" aria-hidden="true"><i></i><i></i><i></i></span><strong>${name}${state.settings.theme === id ? ' ✓' : ''}</strong><small>${hint}</small></button>`).join('')}</div>`;
+    const colors = state.settings.customThemeColors || ['#68d9c4', '#92baff', '#f4bb79'];
+    return `<div class="theme-pager"><div class="choice-grid">${[0, 1].map((page) => `<button class="button ${themePage === page ? 'primary' : 'secondary'}" data-theme-page="${page}" aria-pressed="${themePage === page}">${page ? '三色・自訂' : '黑色・雙色'}</button>`).join('')}</div><div class="theme-grid" data-theme-swipe>${Logic.THEMES.slice(themePage * 8, themePage * 8 + 8).map(([id, name, hint]) => {
+      const palette = id === 'custom' ? colors : triplePalettes[id];
+      return `<button class="theme-option ${state.settings.theme === id ? 'selected' : ''}" data-action="set-theme" data-theme="${id}" aria-pressed="${state.settings.theme === id}"><span class="theme-swatch swatch-${id}" ${palette ? `style="background:linear-gradient(120deg,${palette.join(',')})"` : ''} aria-hidden="true"><i></i><i></i><i></i></span><strong>${name}${state.settings.theme === id ? ' ✓' : ''}</strong><small>${hint}</small></button>`;
+    }).join('')}</div>${themePage === 1 ? `<div class="custom-theme-colors">${colors.map((color, i) => `<label class="field"><span>自訂色 ${i + 1}</span><input type="color" data-custom-theme-color="${i}" value="${color}"></label>`).join('')}</div>` : ''}<div class="small-muted theme-page-number">${themePage + 1} / 2</div></div>`;
   }
 
   function tagColorAttribute(tag) {
@@ -1961,7 +1983,7 @@
   function upcomingTodosHtml() {
     const items = Logic.upcomingTodos(state);
     if (!items.length) return '';
-    return `<section class="settings-card upcoming-section"><div class="section-head"><h3 class="section-title">近期待辦</h3><button class="text-link" data-action="nav" data-view="journal">查看隨筆</button></div><p class="small-muted">3 天內未過期 · 最多 5 筆</p>${items.map((item) => `<button class="upcoming-row" data-action="show-journal" data-journal-id="${attribute(item.id)}"><strong>${escapeHtml(item.title)}</strong><time>${dateText(item.dueAt, true)}</time><span aria-hidden="true">›</span></button>`).join('')}</section>`;
+    return `<section class="settings-card upcoming-section"><div class="section-head"><h3 class="section-title">近期待辦</h3><button class="text-link" data-action="nav" data-view="journal">查看隨筆</button></div><p class="small-muted">3 天內未過期 · 最多 5 筆</p>${items.map((item) => `<button class="upcoming-row status-${Logic.journalTone(item)}" data-action="show-journal" data-journal-id="${attribute(item.id)}"><strong>${escapeHtml(item.title)}</strong><time>${dateText(item.dueAt, true)}</time><span aria-hidden="true">›</span></button>`).join('')}</section>`;
   }
 
   function renderJournalView() {
@@ -1971,7 +1993,7 @@
   function journalListHtml() {
     const items = Logic.filterJournal(state, filters.journal);
     if (!items.length) return '<div class="empty-state"><span class="empty-icon">✎</span><h2>留一頁給自己</h2><p>新增隨手筆記或待辦，也可以調整搜尋條件。</p></div>';
-    return `<div class="list-stack">${items.map((item) => `<article class="journal-card status-${Logic.journalStatus(item)}"><button class="journal-open" data-action="show-journal" data-journal-id="${attribute(item.id)}"><span class="journal-status">${journalStatusLabel(item)}</span><h3>${escapeHtml(item.title)}</h3>${item.content ? `<p>${escapeHtml(item.content)}</p>` : ''}<div class="small-muted">${item.kind === 'todo' && item.dueAt ? `截止 ${dateText(item.dueAt, true)}` : dateText(item.date, false)}</div></button>${item.kind === 'todo' ? `<button class="journal-complete" data-action="toggle-journal" data-journal-id="${attribute(item.id)}" aria-pressed="${item.completed}">${item.completed ? '✓ 已完成 · 恢復待辦' : '○ 標記完成'}</button>` : ''}</article>`).join('')}</div>`;
+    return `<div class="list-stack">${items.map((item) => `<article class="journal-card status-${Logic.journalTone(item)}"><button class="journal-open" data-action="show-journal" data-journal-id="${attribute(item.id)}"><span class="journal-status">${journalStatusLabel(item)}</span><h3>${escapeHtml(item.title)}</h3>${item.content ? `<p>${escapeHtml(item.content)}</p>` : ''}<div class="small-muted">${item.kind === 'todo' && item.dueAt ? `截止 ${dateText(item.dueAt, true)}` : dateText(item.date, false)}</div></button>${item.kind === 'todo' ? `<button class="journal-complete" data-action="toggle-journal" data-journal-id="${attribute(item.id)}" aria-pressed="${item.completed}">${item.completed ? '✓ 已完成 · 恢復待辦' : '○ 標記完成'}</button>` : ''}</article>`).join('')}</div>`;
   }
 
   function journalFormHtml(item, kind) {
@@ -1981,7 +2003,7 @@
   }
 
   function journalDetailHtml(item) {
-    return `${sheetHead(item.title, `${item.kind === 'todo' ? '待辦' : '隨手筆記'}｜${dateText(item.date, false)}`)}<div class="journal-card status-${Logic.journalStatus(item)}"><span class="journal-status">${journalStatusLabel(item)}</span><p class="event-detail">${escapeHtml(item.content || '未填寫內容')}</p>${item.kind === 'todo' ? `<p class="small-muted">截止：${item.dueAt ? dateText(item.dueAt, true) : '未設定'}</p>` : ''}<p class="small-muted">更新：${dateText(item.updatedAt, true)}</p></div>${item.kind === 'todo' ? `<button class="button primary full" style="margin-top:14px" data-action="toggle-journal" data-journal-id="${attribute(item.id)}" data-detail="true">${item.completed ? '恢復待辦' : '標記完成'}</button>` : ''}<div class="form-actions"><button class="button secondary" data-action="edit-journal" data-journal-id="${attribute(item.id)}">修改</button><button class="button danger" data-action="delete-journal" data-journal-id="${attribute(item.id)}">刪除</button></div>`;
+    return `${sheetHead(item.title, `${item.kind === 'todo' ? '待辦' : '隨手筆記'}｜${dateText(item.date, false)}`)}<div class="journal-card status-${Logic.journalTone(item)}"><span class="journal-status">${journalStatusLabel(item)}</span><p class="event-detail">${escapeHtml(item.content || '未填寫內容')}</p>${item.kind === 'todo' ? `<p class="small-muted">截止：${item.dueAt ? dateText(item.dueAt, true) : '未設定'}</p>` : ''}<p class="small-muted">更新：${dateText(item.updatedAt, true)}</p></div>${item.kind === 'todo' ? `<button class="button primary full" style="margin-top:14px" data-action="toggle-journal" data-journal-id="${attribute(item.id)}" data-detail="true">${item.completed ? '恢復待辦' : '標記完成'}</button>` : ''}<div class="form-actions"><button class="button secondary" data-action="edit-journal" data-journal-id="${attribute(item.id)}">修改</button><button class="button danger" data-action="delete-journal" data-journal-id="${attribute(item.id)}">刪除</button></div>`;
   }
 
   async function submitJournal(form) {
@@ -2149,6 +2171,37 @@
     }
   }
 
+  let themeTouch = null;
+  function showThemePage(page) {
+    themePage = page;
+    const pager = document.querySelector('.theme-pager');
+    if (pager) pager.outerHTML = themeOptionsHtml();
+  }
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-theme-page]');
+    if (button) showThemePage(Number(button.dataset.themePage));
+  });
+  document.addEventListener('touchstart', (event) => {
+    themeTouch = event.target.closest('[data-theme-swipe]') && event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY } : null;
+  }, { passive: true });
+  document.addEventListener('touchend', (event) => {
+    if (!themeTouch) return;
+    const dx = event.changedTouches[0].clientX - themeTouch.x;
+    const dy = event.changedTouches[0].clientY - themeTouch.y;
+    themeTouch = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) showThemePage(dx > 0 ? 1 : 0);
+  }, { passive: true });
+  document.addEventListener('touchcancel', () => { themeTouch = null; });
+  document.addEventListener('change', async (event) => {
+    const index = event.target.dataset.customThemeColor;
+    if (index == null) return;
+    const snapshot = Logic.deepClone(state);
+    state.settings.customThemeColors = state.settings.customThemeColors || ['#68d9c4', '#92baff', '#f4bb79'];
+    state.settings.customThemeColors[Number(index)] = Logic.validColor(event.target.value, '#68d9c4');
+    state.settings.theme = 'custom';
+    try { await persist('自訂主題已保存', false); }
+    catch (error) { state = snapshot; render(); toast('顏色儲存失敗，請重試'); }
+  });
   document.addEventListener('click', handleClick);
   document.addEventListener('input', handleInput);
   document.addEventListener('change', handleChange);
